@@ -27,7 +27,7 @@ typedef int32_t dataType;
 typedef int32_t indicesType;
 
 template <uint32_t MAX_THREADNUM, typename DATA_TYPE, typename INDICES_TYPE, typename INDEX_SIZE_TYPE>
-inline __simt_vf__ [aicore] __launch_bounds__(MAX_THREADNUM) void gather_function(__gm__ DATA_TYPE *x, __gm__ INDICES_TYPE *indices, __gm__ DATA_TYPE *y, 
+inline __simt_vf__ __aicore__ __launch_bounds__(MAX_THREADNUM) void gather_function(__gm__ DATA_TYPE *x, __gm__ INDICES_TYPE *indices, __gm__ DATA_TYPE *y, 
     INDEX_SIZE_TYPE gatherDimSize, INDEX_SIZE_TYPE indicesDimSize, INDEX_SIZE_TYPE innerDimSize, INDEX_SIZE_TYPE outNum) {
     for (INDEX_SIZE_TYPE idx = threadIdx.x + blockIdx.x * blockDim.x; idx < outNum; 
         idx += block_num * blockDim.x) {
@@ -45,7 +45,7 @@ inline __simt_vf__ [aicore] __launch_bounds__(MAX_THREADNUM) void gather_functio
 }
 
 template <typename DATA_TYPE, typename INDICES_TYPE>
-__global__ [aicore] __attribute__ ((aiv)) void gather(__gm__ DATA_TYPE *x, __gm__ INDICES_TYPE *indices, __gm__ DATA_TYPE *y, 
+__global__ __aicore__ __vector__ void gather(__gm__ DATA_TYPE *x, __gm__ INDICES_TYPE *indices, __gm__ DATA_TYPE *y, 
     size_t outerDimSize, size_t gatherDimSize, size_t innerDimSize, size_t indicesDimSize) {
     constexpr uint64_t INT32_MAX_SIZE = std::numeric_limits<int32_t>::max();
     if ((outerDimSize * gatherDimSize * innerDimSize < INT32_MAX_SIZE) && (outerDimSize * indicesDimSize * innerDimSize < INT32_MAX_SIZE)) {
@@ -53,7 +53,6 @@ __global__ [aicore] __attribute__ ((aiv)) void gather(__gm__ DATA_TYPE *x, __gm_
     } else {
         asc_vf_call<gather_function<2048, DATA_TYPE, INDICES_TYPE, int64_t>>(dim3(2048), x, indices, y, gatherDimSize, indicesDimSize, innerDimSize, indicesDimSize * innerDimSize);
     }
-
 }
 
 void CHECK_ACL(aclError __ret) {
@@ -132,7 +131,7 @@ int32_t main() {
     dataType *yDevice;
 
     uint32_t threadNum = 2048; 
-    uint64_t maxCoreNum = 4; // just an example, actual max_core_num should be based on hardware information.
+    uint64_t maxCoreNum = 4; // It's just an example. In fact, max_core_num should be obtained based on hardware information.
     uint64_t tempUsedBlockNum = (static_cast<uint64_t>(outerDimSize) + threadNum - 1) / threadNum;
     uint64_t numBlock = std::min(tempUsedBlockNum, maxCoreNum);
 

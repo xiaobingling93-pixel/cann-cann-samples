@@ -98,15 +98,15 @@ __ubuf__ char staticBuf[1024];
 
 #### 2.2.3 SIMT VF函数定义
 ```
-__simt_vf__ [aicore] __launch_bounds__(MAX_THREADNUM) void simt_vector_function(__gm__ float* input, ...)
+__simt_vf__ __aicore__ __launch_bounds__(MAX_THREADNUM) void simt_vector_function(__gm__ float* input, ...)
 ```
-SIMT VF函数使用__simt_vf__、[aicore]修饰符表示是一个simt调用的device函数，使用__launch_bounds__指定该函数可启动的最大线程数量
+SIMT VF函数使用__simt_vf__、__aicore__修饰符表示是一个simt调用的device函数，使用__launch_bounds__指定该函数可启动的最大线程数量
 
 #### 2.2.4 函数调用
 在`host`侧使用`<<<...>>>`方式启动核函数，核函数内部使用`asc_vf_call`调用SIMT子函数，通过参数配置，启动指定数量的线程，执行SIMT函数。
 
-* 核函数：使用`__global__ [aicore]`标识，是Device侧的入口函数，在Host侧通过`<<<...>>>`语法进行调用。
-* [aicore]函数: 使用`[aicore]`标识的函数在Device侧执行，核函数内部可以调用`[aicore]`函数。
+* 核函数：使用`__global__ __aicore__`标识，是Device侧的入口函数，在Host侧通过`<<<...>>>`语法进行调用。
+* __aicore__函数: 使用`__aicore__`标识的函数在Device侧执行，核函数内部可以调用`__aicore__`函数。
 
 **核函数**调用方式如下:
 ```
@@ -160,7 +160,7 @@ uint64_t numBlock = std::min((static_cast<uint64_t>(outerDimSize) + threadNum - 
 * gather的simt kernel实现
 ```
 template <uint32_t MAX_THREADNUM, typename DATA_TYPE, typename INDICES_TYPE, typename INDEX_SIZE_TYPE>
-inline __simt_vf__ [aicore] __launch_bounds__(MAX_THREADNUM) void gather_function(__gm__ DATA_TYPE *x, __gm__ INDICES_TYPE *indices, __gm__ DATA_TYPE *y, 
+inline __simt_vf__ __aicore__ __launch_bounds__(MAX_THREADNUM) void gather_function(__gm__ DATA_TYPE *x, __gm__ INDICES_TYPE *indices, __gm__ DATA_TYPE *y, 
     INDEX_SIZE_TYPE gatherDimSize, INDEX_SIZE_TYPE indicesDimSize, INDEX_SIZE_TYPE innerDimSize, INDEX_SIZE_TYPE outNum) {
     for (INDEX_SIZE_TYPE idx = threadIdx.x + blockIdx.x * blockDim.x; idx < outNum; 
         idx += block_num * blockDim.x) {
@@ -181,7 +181,7 @@ inline __simt_vf__ [aicore] __launch_bounds__(MAX_THREADNUM) void gather_functio
 * gather的simt函数调用
 ```
 template <typename DATA_TYPE, typename INDICES_TYPE>
-__global__ [aicore] __attribute__ ((aiv)) void gather(__gm__ DATA_TYPE *x, __gm__ INDICES_TYPE *indices, __gm__ DATA_TYPE *y, 
+__global__ __aicore__ __vector__ void gather(__gm__ DATA_TYPE *x, __gm__ INDICES_TYPE *indices, __gm__ DATA_TYPE *y, 
     size_t outerDimSize, size_t gatherDimSize, size_t innerDimSize, size_t indicesDimSize) {
     constexpr uint64_t INT32_MAX_SIZE = std::numeric_limits<int32_t>::max();
     if ((outerDimSize * gatherDimSize * innerDimSize < INT32_MAX_SIZE) && (outerDimSize * indicesDimSize * innerDimSize < INT32_MAX_SIZE)) {
