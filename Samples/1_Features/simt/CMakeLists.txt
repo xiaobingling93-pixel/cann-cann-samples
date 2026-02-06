@@ -22,7 +22,7 @@ add_executable(simt main.cpp)
 target_include_directories(simt PRIVATE ${ASCEND_INCLUDE_DIRS})
 target_link_directories(simt PRIVATE ${ASCEND_DIR}/lib64)
 target_compile_options(simt PRIVATE
-    "-xcce"
+    "-xasc"
     "--npu-arch=dav-3101"
     "-w"
     "-O3"
