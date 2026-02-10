@@ -153,8 +153,8 @@ AI Core内部核心组件及组件功能详细说明如下表。
 
     通过比较T<sub>cal</sub>和T<sub>mem</sub>，可确定任务受限于计算还是内存：
 
-    -   当T<sub>cal</sub>≥T<sub>mem</sub>时：任务是计算绑定（Compute-bound），提升计算能力可显著加速。
-    -   当T<sub>mem</sub>\>T<sub>cal</sub>时：任务是内存绑定（Memory-bound），优化内存带宽更有效。
+    -   当T<sub>cal</sub>≥T<sub>mem</sub>时：任务是计算瓶颈（Compute-bound），提升计算能力可显著加速。
+    -   当T<sub>mem</sub>\>T<sub>cal</sub>时：任务是内存瓶颈（Memory-bound），优化内存带宽更有效。
 
 **硬件的 "内存带宽 / 计算带宽" 比值**决定了其对算术强度的 "门槛"，高于门槛的任务更能发挥硬件计算能力，低于门槛则受限于内存。
 
