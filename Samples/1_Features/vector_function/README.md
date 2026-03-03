@@ -174,32 +174,48 @@ __aicore__ void gelu_compute(...) {
 ### VF优化实现
 ```cpp
 // gelu_with_vf.cpp 关键代码
-__aicore__ void gelu_compute(...) {
-    __VEC_SCOPE__  // 标记VF执行作用域，内部代码由VF计算单元执行
-    {
-        // 寄存器声明：使用MicroAPI::RegTensor定义向量寄存器中的张量
-        AscendC::MicroAPI::RegTensor<float> xReg, cubeReg, tReg;
-
-        for (uint16_t i = 0; i < loopNum; ++i) {
-            // 数据加载到寄存器（一次）
-            // LoadDist::DIST_NORM: 连续对齐搬入模式，从UB加载数据到寄存器
-            AscendC::MicroAPI::DataCopy<float, AscendC::MicroAPI::LoadDist::DIST_NORM>(
-                xReg, xAddr + i * vectorLength);
-
-            // 计算融合（中间结果驻留寄存器）
-            // 所有中间结果在寄存器间传递，无需写回UB
-            AscendC::MicroAPI::Mul(cubeReg, xReg, xReg);     // x² → cubeReg
-            AscendC::MicroAPI::Mul(cubeReg, cubeReg, xReg);  // x³ → cubeReg（寄存器重用）
-            AscendC::MicroAPI::Muls(tReg, xReg, factor);     // t = x * factor
-            AscendC::MicroAPI::Add(cubeReg, cubeReg, tReg);  // x³ + t → cubeReg
-            // ... 后续计算（指数、加法、除法）全部在寄存器中进行
-
-            // 最终结果写回UB（一次）
-            // StoreDist::DIST_NORM_B32: 连续对齐搬出模式，B32表示32Byte对齐
-            AscendC::MicroAPI::DataCopy<float, AscendC::MicroAPI::StoreDist::DIST_NORM_B32>(
-                yAddr + i * vectorLength, yReg);
-        }
+__simd_vf__ inline void gelu_vf(__ubuf__ float *xAddr, __ubuf__ float *yAddr, uint32_t n, uint32_t loopNum)
+{
+    const float NEG_SQRT_EIGHT_OVER_PI = -1.595769121 * 0.044715;
+    const float TANH_APPROX_FACTOR = 1 / 0.044715;
+    constexpr static uint32_t vectorLength = AscendC::VECTOR_REG_WIDTH / sizeof(float);
+    AscendC::MicroAPI::MaskReg pMask;
+    // 寄存器声明：使用MicroAPI::RegTensor定义向量寄存器中的张量
+    AscendC::MicroAPI::RegTensor<float> xReg, yReg, cubeReg, tReg;
+    uint32_t count;
+    count = static_cast<uint32_t>(n);
+    
+    for (uint16_t i = 0; i < loopNum; ++i) {
+        pMask = AscendC::MicroAPI::UpdateMask<float>(count);
+        // 数据加载到寄存器（一次）
+        // LoadDist::DIST_NORM: 连续对齐搬入模式，从UB加载数据到寄存器
+        AscendC::MicroAPI::DataCopy<float, AscendC::MicroAPI::LoadDist::DIST_NORM>(
+            xReg, (__ubuf__ float *)xAddr + i * vectorLength);
+        // 计算融合（中间结果驻留寄存器）
+        // 所有中间结果在寄存器间传递，无需写回UB
+        AscendC::MicroAPI::Mul(cubeReg, xReg, xReg, pMask);                       // x² → cubeReg
+        AscendC::MicroAPI::Mul(cubeReg, cubeReg, xReg, pMask);                    // x³ → cubeReg（寄存器重用）
+        AscendC::MicroAPI::Muls(tReg, xReg, TANH_APPROX_FACTOR, pMask);           // t = x * factor
+        AscendC::MicroAPI::Add(cubeReg, cubeReg, tReg, pMask);                    // x³ + t → cubeReg
+        // ... 后续计算（指数、加法、除法）全部在寄存器中进行
+        AscendC::MicroAPI::Muls(cubeReg, cubeReg, NEG_SQRT_EIGHT_OVER_PI, pMask);
+        AscendC::MicroAPI::Exp(cubeReg, cubeReg, pMask);
+        AscendC::MicroAPI::Adds(cubeReg, cubeReg, 1.0f, pMask);
+        AscendC::MicroAPI::Div(yReg, xReg, cubeReg, pMask);
+        // 最终结果写回UB（一次）
+        // StoreDist::DIST_NORM_B32: 连续对齐搬出模式，B32表示32Byte对齐
+        AscendC::MicroAPI::DataCopy<float, AscendC::MicroAPI::StoreDist::DIST_NORM_B32>(
+            (__ubuf__ float *)yAddr + i * vectorLength, yReg, pMask);
     }
+}
+
+__aicore__ inline void gelu_compute(...)
+{
+    constexpr static uint32_t vectorLength = AscendC::VECTOR_REG_WIDTH / sizeof(float);
+    uint32_t loopNum = (n + vectorLength - 1) / vectorLength;
+    __ubuf__ float *xAddr = (__ubuf__ float *)xLocal.GetPhyAddr();
+    __ubuf__ float *yAddr = (__ubuf__ float *)yLocal.GetPhyAddr();
+    gelu_vf(xAddr, yAddr, static_cast<uint32_t>(n), loopNum);
 }
 ```
 
