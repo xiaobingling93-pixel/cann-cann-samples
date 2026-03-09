@@ -17,9 +17,31 @@
 #include <random>
 #include <tuple>
 #include <algorithm>
+#include <memory>
+#include <vector>
 #include "acl/acl.h"
 #include "kernel_operator.h"
 #include "platform/platform_ascendc.h"
+
+// ACL 错误检查宏
+#define CHECK_ACL(call)                                              \
+    do {                                                             \
+        aclError err = (call);                                       \
+        if (err != ACL_SUCCESS) {                                    \
+            std::cerr << "ACL error: " << err << " at " << __FILE__ \
+                      << ":" << __LINE__ << std::endl;              \
+            return 1;                                                \
+        }                                                            \
+    } while (0)
+
+// 自定义删除器，安全处理空指针
+struct AclrtFreeDeleter {
+    void operator()(void* ptr) const {
+        if (ptr != nullptr) {
+            aclrtFree(ptr);
+        }
+    }
+};
 
 std::tuple<int64_t, int64_t, int64_t> calc_tiling_params(int64_t totalLength)
 {
@@ -121,53 +143,52 @@ __global__ __aicore__ __vector__ void add_kernel(
     }
 }
 
-int main()
+int run_vector_add(aclrtStream stream, int64_t numElements)
 {
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_real_distribution<float> dist(0.0f, 10.0f);
 
-    aclInit(nullptr);
-    int32_t deviceId = 0;
-    aclrtSetDevice(deviceId);
-    aclrtStream stream = nullptr;
-    aclrtCreateStream(&stream);
+    size_t size = static_cast<size_t>(numElements) * sizeof(float);
 
-    int numElements = 409600;
-    size_t size = numElements * sizeof(float);
-    float *h_A = (float *)malloc(size);
-    float *h_B = (float *)malloc(size);
-    float *h_C = (float *)malloc(size);
+    // Host 内存
+    std::vector<float> h_A(numElements);
+    std::vector<float> h_B(numElements);
+    std::vector<float> h_C(numElements);
 
-    for (int i = 0; i < numElements; ++i) {
+    for (int64_t i = 0; i < numElements; ++i) {
         h_A[i] = dist(gen);
         h_B[i] = dist(gen);
-        h_C[i] = 0.0f;  // 初始化为0
+        h_C[i] = 0.0f;
     }
 
+    // Device 内存 - 使用智能指针管理
     GM_ADDR d_A = nullptr;
     GM_ADDR d_B = nullptr;
     GM_ADDR d_C = nullptr;
+    CHECK_ACL(aclrtMalloc((void **)&d_A, size, ACL_MEM_MALLOC_HUGE_FIRST));
+    CHECK_ACL(aclrtMalloc((void **)&d_B, size, ACL_MEM_MALLOC_HUGE_FIRST));
+    CHECK_ACL(aclrtMalloc((void **)&d_C, size, ACL_MEM_MALLOC_HUGE_FIRST));
+    std::unique_ptr<void, AclrtFreeDeleter> d_A_guard(d_A);
+    std::unique_ptr<void, AclrtFreeDeleter> d_B_guard(d_B);
+    std::unique_ptr<void, AclrtFreeDeleter> d_C_guard(d_C);
 
-    aclrtMalloc((void **)&d_A, size, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&d_B, size, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&d_C, size, ACL_MEM_MALLOC_HUGE_FIRST);
-
-    aclrtMemcpy(d_A, size, h_A, size, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(d_B, size, h_B, size, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_ACL(aclrtMemcpy(d_A, size, h_A.data(), size, ACL_MEMCPY_HOST_TO_DEVICE));
+    CHECK_ACL(aclrtMemcpy(d_B, size, h_B.data(), size, ACL_MEMCPY_HOST_TO_DEVICE));
 
     // Kernel Call
     int64_t numBlocks, blockLength, tileSize;
     std::tie(numBlocks, blockLength, tileSize) = calc_tiling_params(numElements);
-    aclrtSynchronizeStream(stream);
+    CHECK_ACL(aclrtSynchronizeStream(stream));
     add_kernel<float><<<numBlocks, nullptr, stream>>>(d_A, d_B, d_C, numElements, blockLength, tileSize);
-    aclrtSynchronizeStream(stream);
+    CHECK_ACL(aclrtSynchronizeStream(stream));
 
-    aclrtMemcpy(h_C, size, d_C, size, ACL_MEMCPY_DEVICE_TO_HOST);
-    aclrtSynchronizeStream(stream);
+    CHECK_ACL(aclrtMemcpy(h_C.data(), size, d_C, size, ACL_MEMCPY_DEVICE_TO_HOST));
+    CHECK_ACL(aclrtSynchronizeStream(stream));
 
+    // 验证结果
     bool success = true;
-    for (int i = 0; i < numElements; ++i) {
+    for (int64_t i = 0; i < numElements; ++i) {
         if (h_C[i] != h_A[i] + h_B[i]) {
             success = false;
             break;
@@ -180,16 +201,22 @@ int main()
         std::cout << "Vector add failed!" << std::endl;
     }
 
-    aclrtFree(d_A);
-    aclrtFree(d_B);
-    aclrtFree(d_C);
+    return success ? 0 : 1;
+}
 
-    free(h_A);
-    free(h_B);
-    free(h_C);
+int main()
+{
+    CHECK_ACL(aclInit(nullptr));
+    int32_t deviceId = 0;
+    CHECK_ACL(aclrtSetDevice(deviceId));
+    aclrtStream stream = nullptr;
+    CHECK_ACL(aclrtCreateStream(&stream));
 
-    aclrtDestroyStream(stream);
-    aclrtResetDevice(deviceId);
-    aclFinalize();
-    return 0;
+    int result = run_vector_add(stream, 409600);
+
+    CHECK_ACL(aclrtDestroyStream(stream));
+    CHECK_ACL(aclrtResetDevice(deviceId));
+    CHECK_ACL(aclFinalize());
+
+    return result;
 }
