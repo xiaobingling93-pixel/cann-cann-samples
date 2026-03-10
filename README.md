@@ -1,11 +1,12 @@
-# ops-samples
+# cann-samples
 
 ## 🔥Latest News
+- [2026/03] ops-samples更名为cann-samples。
 - [2026/02] ops-samples项目上线，提供算子领域高性能实战演进样例与体系化调优知识库。
 
 ## 🚀概述
 
-ops-samples是[CANN](https://hiascend.com/software/cann)（Compute Architecture for Neural Networks）算子库中提供算子领域高性能实战演进样例与体系化调优知识库。
+cann-samples是[CANN](https://hiascend.com/software/cann)（Compute Architecture for Neural Networks）算子库中提供算子领域高性能实战演进样例与体系化调优知识库。
 
 ## 📝环境部署
 
@@ -89,5 +90,5 @@ ops-samples是[CANN](https://hiascend.com/software/cann)（Compute Architecture 
 
 本项目功能和文档正在持续更新和完善中，欢迎您关注最新版本。
 
-- **问题反馈**：通过GitCode[【Issues】](https://gitcode.com/cann/ops-samples/issues)提交问题
-- **社区互动**：通过GitCode[【讨论】](https://gitcode.com/cann/ops-samples/discussions)参与交流
+- **问题反馈**：通过GitCode[【Issues】](https://gitcode.com/cann/cann-samples/issues)提交问题
+- **社区互动**：通过GitCode[【讨论】](https://gitcode.com/cann/cann-samples/discussions)参与交流

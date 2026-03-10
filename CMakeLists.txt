@@ -10,6 +10,6 @@
 
 cmake_minimum_required(VERSION 3.16)
 find_package(ASC)
-project(ops-samples LANGUAGES C CXX ASC)
+project(cann-samples LANGUAGES C CXX ASC)
 include(cmake/ascend.cmake)
 add_subdirectory(Samples)

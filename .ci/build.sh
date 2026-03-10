@@ -9,8 +9,8 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------
 #
-# CI Build Script for ops-samples
-# 功能: 清理、配置、编译、安装 ops-samples 项目
+# CI Build Script for cann-samples
+# 功能: 清理、配置、编译、安装 cann-samples 项目
 # 用法: bash .ci/build.sh
 
 set -e  # 任何命令失败时立即退出脚本
