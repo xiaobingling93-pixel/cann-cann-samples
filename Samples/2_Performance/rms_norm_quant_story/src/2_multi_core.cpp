@@ -51,8 +51,6 @@ std::string getExeDir()
     return ".";
 }
 
-using namespace AscendC;
-
 typedef half dataType;
 typedef half scaleType;
 typedef int8_t offsetType;
@@ -87,25 +85,25 @@ __aicore__ inline int64_t Align(int64_t elementNum, int64_t bytes)
 template <typename DATA_TYPE, typename SCALE_TYPE, typename OFFSET_TYPE, typename OUTPUT_DTYPE>
 class RmsNormQuant {
 private:
-    TPipe pipe_;
+    AscendC::TPipe pipe_;
 
-    TQue<QuePosition::VECIN, 1> xInQueue_;
-    TQue<QuePosition::VECIN, 1> gammaInQueue_;
-    TQue<QuePosition::VECIN, 1> betaInQueue_;
-    TQue<QuePosition::VECOUT, 1> yOutQueue_;
+    AscendC::TQue<AscendC::QuePosition::VECIN, 1> xInQueue_;
+    AscendC::TQue<AscendC::QuePosition::VECIN, 1> gammaInQueue_;
+    AscendC::TQue<AscendC::QuePosition::VECIN, 1> betaInQueue_;
+    AscendC::TQue<AscendC::QuePosition::VECOUT, 1> yOutQueue_;
 
-    TBuf<QuePosition::VECCALC> xBuf_;
-    TBuf<QuePosition::VECCALC> gammaBuf_;
-    TBuf<QuePosition::VECCALC> betaBuf_;
-    TBuf<QuePosition::VECCALC> rmsBuf_;
-    TBuf<QuePosition::VECCALC> reduceBuf_;
+    AscendC::TBuf<AscendC::QuePosition::VECCALC> xBuf_;
+    AscendC::TBuf<AscendC::QuePosition::VECCALC> gammaBuf_;
+    AscendC::TBuf<AscendC::QuePosition::VECCALC> betaBuf_;
+    AscendC::TBuf<AscendC::QuePosition::VECCALC> rmsBuf_;
+    AscendC::TBuf<AscendC::QuePosition::VECCALC> reduceBuf_;
 
-    GlobalTensor<DATA_TYPE> xGm_;
-    GlobalTensor<DATA_TYPE> gammaGm_;
-    GlobalTensor<DATA_TYPE> betaGm_;
-    GlobalTensor<SCALE_TYPE> scaleGm_;
-    GlobalTensor<OFFSET_TYPE> offsetGm_;
-    GlobalTensor<OUTPUT_DTYPE> yGm_;
+    AscendC::GlobalTensor<DATA_TYPE> xGm_;
+    AscendC::GlobalTensor<DATA_TYPE> gammaGm_;
+    AscendC::GlobalTensor<DATA_TYPE> betaGm_;
+    AscendC::GlobalTensor<SCALE_TYPE> scaleGm_;
+    AscendC::GlobalTensor<OFFSET_TYPE> offsetGm_;
+    AscendC::GlobalTensor<OUTPUT_DTYPE> yGm_;
 
     RmsnormQuantTilingData *tilingData_;
     int64_t blockIdx_ = 0;
@@ -124,9 +122,9 @@ public:
         __gm__ SCALE_TYPE *scale, __gm__ OFFSET_TYPE *offset, __gm__ OUTPUT_DTYPE *y,
         RmsnormQuantTilingData *tilingData)
     {
-        blockIdx_ = GetBlockIdx();
+        blockIdx_ = AscendC::GetBlockIdx();
         tilingData_ = tilingData;
-        if (blockIdx_ == GetBlockNum() - 1) {
+        if (blockIdx_ == AscendC::GetBlockNum() - 1) {
             curblockFactor_ = tilingData_->blockTail;
         } else {
             curblockFactor_ = tilingData_->blockFactor;
@@ -157,77 +155,77 @@ public:
 
     __aicore__ inline void CopyInR()
     {
-        LocalTensor<DATA_TYPE> gammaInLocalTensor = gammaInQueue_.AllocTensor<DATA_TYPE>();
-        LocalTensor<DATA_TYPE> betaInLocalTensor = betaInQueue_.AllocTensor<DATA_TYPE>();
+        AscendC::LocalTensor<DATA_TYPE> gammaInLocalTensor = gammaInQueue_.AllocTensor<DATA_TYPE>();
+        AscendC::LocalTensor<DATA_TYPE> betaInLocalTensor = betaInQueue_.AllocTensor<DATA_TYPE>();
 
-        LocalTensor<float> gammaLocalTensor = gammaBuf_.Get<float>();
-        LocalTensor<float> betaLocalTensor = betaBuf_.Get<float>();
-        DataCopyExtParams dataCopyParams;
+        AscendC::LocalTensor<float> gammaLocalTensor = gammaBuf_.Get<float>();
+        AscendC::LocalTensor<float> betaLocalTensor = betaBuf_.Get<float>();
+        AscendC::DataCopyExtParams dataCopyParams;
         dataCopyParams.blockCount = 1;
         dataCopyParams.blockLen = tilingData_->r * sizeof(DATA_TYPE);
         dataCopyParams.srcStride = 0;
         dataCopyParams.dstStride = 0;
-        DataCopyPadExtParams dataCopyPadParams{false, 0, 0, static_cast<DATA_TYPE>(0)};
-        DataCopyPad(gammaInLocalTensor, gammaGm_, dataCopyParams, dataCopyPadParams);
-        DataCopyPad(betaInLocalTensor, betaGm_, dataCopyParams, dataCopyPadParams);
+        AscendC::DataCopyPadExtParams dataCopyPadParams{false, 0, 0, static_cast<DATA_TYPE>(0)};
+        AscendC::DataCopyPad(gammaInLocalTensor, gammaGm_, dataCopyParams, dataCopyPadParams);
+        AscendC::DataCopyPad(betaInLocalTensor, betaGm_, dataCopyParams, dataCopyPadParams);
 
         gammaInQueue_.EnQue<DATA_TYPE>(gammaInLocalTensor);
         betaInQueue_.EnQue<DATA_TYPE>(betaInLocalTensor);
         gammaInLocalTensor = gammaInQueue_.DeQue<DATA_TYPE>();
         betaInLocalTensor = betaInQueue_.DeQue<DATA_TYPE>();
 
-        Cast(gammaLocalTensor, gammaInLocalTensor, RoundMode::CAST_NONE, tilingData_->r);
-        Cast(betaLocalTensor, betaInLocalTensor, RoundMode::CAST_NONE, tilingData_->r);
+        AscendC::Cast(gammaLocalTensor, gammaInLocalTensor, AscendC::RoundMode::CAST_NONE, tilingData_->r);
+        AscendC::Cast(betaLocalTensor, betaInLocalTensor, AscendC::RoundMode::CAST_NONE, tilingData_->r);
         gammaInQueue_.FreeTensor(gammaInLocalTensor);
         betaInQueue_.FreeTensor(betaInLocalTensor);
     }
 
     __aicore__ inline void CopyInX(int64_t loop)
     {
-        LocalTensor<DATA_TYPE> xInLocalTensor = xInQueue_.AllocTensor<DATA_TYPE>();
-        DataCopyExtParams dataCopyParams;
+        AscendC::LocalTensor<DATA_TYPE> xInLocalTensor = xInQueue_.AllocTensor<DATA_TYPE>();
+        AscendC::DataCopyExtParams dataCopyParams;
         dataCopyParams.blockCount = 1;
         dataCopyParams.blockLen = tilingData_->r * sizeof(DATA_TYPE);
         dataCopyParams.srcStride = 0;
         dataCopyParams.dstStride = 0;
-        DataCopyPadExtParams dataCopyPadParams{false, 0, 0, static_cast<DATA_TYPE>(0)};
-        DataCopyPad(xInLocalTensor, xGm_[loop * tilingData_->r], dataCopyParams, dataCopyPadParams);
+        AscendC::DataCopyPadExtParams dataCopyPadParams{false, 0, 0, static_cast<DATA_TYPE>(0)};
+        AscendC::DataCopyPad(xInLocalTensor, xGm_[loop * tilingData_->r], dataCopyParams, dataCopyPadParams);
         xInQueue_.EnQue(xInLocalTensor);
     }
 
     __aicore__ inline void Compute()
     {
-        LocalTensor<DATA_TYPE> xInLocalTensor = xInQueue_.DeQue<DATA_TYPE>();
-        LocalTensor<OUTPUT_DTYPE> yLocalTensor = yOutQueue_.AllocTensor<OUTPUT_DTYPE>();
-        LocalTensor<float> xLocalTensor = xBuf_.Get<float>();
-        LocalTensor<float> gammaLocalTensor = gammaBuf_.Get<float>();
-        LocalTensor<float> betaLocalTensor = betaBuf_.Get<float>();
-        LocalTensor<float> rmsLocalTensor = rmsBuf_.Get<float>();
-        LocalTensor<float> reduceLocalTensor = reduceBuf_.Get<float>();
+        AscendC::LocalTensor<DATA_TYPE> xInLocalTensor = xInQueue_.DeQue<DATA_TYPE>();
+        AscendC::LocalTensor<OUTPUT_DTYPE> yLocalTensor = yOutQueue_.AllocTensor<OUTPUT_DTYPE>();
+        AscendC::LocalTensor<float> xLocalTensor = xBuf_.Get<float>();
+        AscendC::LocalTensor<float> gammaLocalTensor = gammaBuf_.Get<float>();
+        AscendC::LocalTensor<float> betaLocalTensor = betaBuf_.Get<float>();
+        AscendC::LocalTensor<float> rmsLocalTensor = rmsBuf_.Get<float>();
+        AscendC::LocalTensor<float> reduceLocalTensor = reduceBuf_.Get<float>();
 
-        Cast(xLocalTensor, xInLocalTensor, RoundMode::CAST_NONE, tilingData_->r);
-        Mul(rmsLocalTensor, xLocalTensor, xLocalTensor, tilingData_->r);
-        ReduceSum(reduceLocalTensor, rmsLocalTensor, xInLocalTensor.template ReinterpretCast<float>(), tilingData_->r);
-        Duplicate(rmsLocalTensor, reduceLocalTensor, tilingData_->r);
+        AscendC::Cast(xLocalTensor, xInLocalTensor, AscendC::RoundMode::CAST_NONE, tilingData_->r);
+        AscendC::Mul(rmsLocalTensor, xLocalTensor, xLocalTensor, tilingData_->r);
+        AscendC::ReduceSum(reduceLocalTensor, rmsLocalTensor, xInLocalTensor.template ReinterpretCast<float>(), tilingData_->r);
+        AscendC::Duplicate(rmsLocalTensor, reduceLocalTensor, tilingData_->r);
 
-        Muls(rmsLocalTensor, rmsLocalTensor, rInv_, tilingData_->r);
-        Adds(rmsLocalTensor, rmsLocalTensor, tilingData_->epsilon, tilingData_->r);
-        Sqrt(rmsLocalTensor, rmsLocalTensor, tilingData_->r);
-        Div(xLocalTensor, xLocalTensor, rmsLocalTensor, tilingData_->r);
-        Mul(rmsLocalTensor, xLocalTensor, gammaLocalTensor, tilingData_->r);
-        Add(rmsLocalTensor, rmsLocalTensor, betaLocalTensor, tilingData_->r);
-        Muls(rmsLocalTensor, rmsLocalTensor, scale_, tilingData_->r);
-        Adds(rmsLocalTensor, rmsLocalTensor, offset_, tilingData_->r);
-        Cast(rmsLocalTensor.template ReinterpretCast<half>(), rmsLocalTensor, RoundMode::CAST_NONE, tilingData_->r);
-        Cast(yLocalTensor, rmsLocalTensor.template ReinterpretCast<half>(), RoundMode::CAST_RINT, tilingData_->r);
+        AscendC::Muls(rmsLocalTensor, rmsLocalTensor, rInv_, tilingData_->r);
+        AscendC::Adds(rmsLocalTensor, rmsLocalTensor, tilingData_->epsilon, tilingData_->r);
+        AscendC::Sqrt(rmsLocalTensor, rmsLocalTensor, tilingData_->r);
+        AscendC::Div(xLocalTensor, xLocalTensor, rmsLocalTensor, tilingData_->r);
+        AscendC::Mul(rmsLocalTensor, xLocalTensor, gammaLocalTensor, tilingData_->r);
+        AscendC::Add(rmsLocalTensor, rmsLocalTensor, betaLocalTensor, tilingData_->r);
+        AscendC::Muls(rmsLocalTensor, rmsLocalTensor, scale_, tilingData_->r);
+        AscendC::Adds(rmsLocalTensor, rmsLocalTensor, offset_, tilingData_->r);
+        AscendC::Cast(rmsLocalTensor.template ReinterpretCast<half>(), rmsLocalTensor, AscendC::RoundMode::CAST_NONE, tilingData_->r);
+        AscendC::Cast(yLocalTensor, rmsLocalTensor.template ReinterpretCast<half>(), AscendC::RoundMode::CAST_RINT, tilingData_->r);
         xInQueue_.FreeTensor(xInLocalTensor);
         yOutQueue_.EnQue<OUTPUT_DTYPE>(yLocalTensor);
     }
 
     __aicore__ inline void CopyOut(int64_t loop)
     {
-        LocalTensor<OUTPUT_DTYPE> yLocalTensor = yOutQueue_.DeQue<OUTPUT_DTYPE>();
-        DataCopyExtParams dataCopyParams{
+        AscendC::LocalTensor<OUTPUT_DTYPE> yLocalTensor = yOutQueue_.DeQue<OUTPUT_DTYPE>();
+        AscendC::DataCopyExtParams dataCopyParams{
             static_cast<uint16_t>(1), static_cast<uint32_t>(tilingData_->r * sizeof(OUTPUT_DTYPE)), 0, 0, 0};
         DataCopyPad(yGm_[loop * tilingData_->r], yLocalTensor, dataCopyParams);
         yOutQueue_.FreeTensor(yLocalTensor);

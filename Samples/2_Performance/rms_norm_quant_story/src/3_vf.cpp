@@ -16,7 +16,7 @@
 #include "acl/acl.h"
 #include "acl/acl_rt.h"
 #include "kernel_operator.h"
-#include "kernel_micro_utils.h"
+#include "basic_api/reg_compute/kernel_reg_compute_utils.h"
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -52,8 +52,6 @@ std::string getExeDir()
     return ".";
 }
 
-using namespace AscendC;
-
 typedef half dataType;
 typedef half scaleType;
 typedef int8_t offsetType;
@@ -65,25 +63,25 @@ static constexpr int64_t BLOCK_BYTES = 32;
 static constexpr int MAX_ERROR_ELEM_NUM = 100;
 static constexpr uint32_t VL_FLOAT_SIZE = 256 / sizeof(float);
 
-static constexpr MicroAPI::CastTrait castTraitB162B32 = {
-    MicroAPI::RegLayout::ZERO,
-    MicroAPI::SatMode::UNKNOWN,
-    MicroAPI::MaskMergeMode::ZEROING,
-    RoundMode::UNKNOWN,
+static constexpr AscendC::MicroAPI::CastTrait castTraitB162B32 = {
+    AscendC::MicroAPI::RegLayout::ZERO,
+    AscendC::MicroAPI::SatMode::UNKNOWN,
+    AscendC::MicroAPI::MaskMergeMode::ZEROING,
+    AscendC::RoundMode::UNKNOWN,
 };
 
-static constexpr MicroAPI::CastTrait castTraitB322Int16 = {
-    MicroAPI::RegLayout::ZERO,
-    MicroAPI::SatMode::NO_SAT,
-    MicroAPI::MaskMergeMode::ZEROING,
-    RoundMode::CAST_TRUNC,
+static constexpr AscendC::MicroAPI::CastTrait castTraitB322Int16 = {
+    AscendC::MicroAPI::RegLayout::ZERO,
+    AscendC::MicroAPI::SatMode::NO_SAT,
+    AscendC::MicroAPI::MaskMergeMode::ZEROING,
+    AscendC::RoundMode::CAST_TRUNC,
 };
 
-static constexpr MicroAPI::CastTrait castTraitB162Int8 = {
-    MicroAPI::RegLayout::ZERO,
-    MicroAPI::SatMode::NO_SAT,
-    MicroAPI::MaskMergeMode::ZEROING,
-    RoundMode::CAST_TRUNC,
+static constexpr AscendC::MicroAPI::CastTrait castTraitB162Int8 = {
+    AscendC::MicroAPI::RegLayout::ZERO,
+    AscendC::MicroAPI::SatMode::NO_SAT,
+    AscendC::MicroAPI::MaskMergeMode::ZEROING,
+    AscendC::RoundMode::CAST_TRUNC,
 };
 
 struct RmsnormQuantTilingData {
@@ -121,24 +119,24 @@ __aicore__ inline T1 CeilDiv(T1 x, T2 y)
 template <typename DATA_TYPE, typename SCALE_TYPE, typename OFFSET_TYPE, typename OUTPUT_DTYPE>
 class RmsNormQuant {
 private:
-    TPipe pipe_;
+    AscendC::TPipe pipe_;
 
-    TQue<QuePosition::VECIN, 1> xInQueue_;
-    TQue<QuePosition::VECIN, 1> gammaInQueue_;
-    TQue<QuePosition::VECIN, 1> betaInQueue_;
-    TQue<QuePosition::VECOUT, 1> yOutQueue_;
+    AscendC::TQue<AscendC::QuePosition::VECIN, 1> xInQueue_;
+    AscendC::TQue<AscendC::QuePosition::VECIN, 1> gammaInQueue_;
+    AscendC::TQue<AscendC::QuePosition::VECIN, 1> betaInQueue_;
+    AscendC::TQue<AscendC::QuePosition::VECOUT, 1> yOutQueue_;
 
-    TBuf<QuePosition::VECCALC> xBuf_;
-    TBuf<QuePosition::VECCALC> gammaBuf_;
-    TBuf<QuePosition::VECCALC> betaBuf_;
-    TBuf<QuePosition::VECCALC> rmsBuf_;
+    AscendC::TBuf<AscendC::QuePosition::VECCALC> xBuf_;
+    AscendC::TBuf<AscendC::QuePosition::VECCALC> gammaBuf_;
+    AscendC::TBuf<AscendC::QuePosition::VECCALC> betaBuf_;
+    AscendC::TBuf<AscendC::QuePosition::VECCALC> rmsBuf_;
 
-    GlobalTensor<DATA_TYPE> xGm_;
-    GlobalTensor<DATA_TYPE> gammaGm_;
-    GlobalTensor<DATA_TYPE> betaGm_;
-    GlobalTensor<SCALE_TYPE> scaleGm_;
-    GlobalTensor<OFFSET_TYPE> offsetGm_;
-    GlobalTensor<OUTPUT_DTYPE> yGm_;
+    AscendC::GlobalTensor<DATA_TYPE> xGm_;
+    AscendC::GlobalTensor<DATA_TYPE> gammaGm_;
+    AscendC::GlobalTensor<DATA_TYPE> betaGm_;
+    AscendC::GlobalTensor<SCALE_TYPE> scaleGm_;
+    AscendC::GlobalTensor<OFFSET_TYPE> offsetGm_;
+    AscendC::GlobalTensor<OUTPUT_DTYPE> yGm_;
 
     RmsnormQuantTilingData *tilingData_;
     int64_t blockIdx_ = 0;
@@ -158,9 +156,9 @@ public:
         __gm__ SCALE_TYPE *scale, __gm__ OFFSET_TYPE *offset, __gm__ OUTPUT_DTYPE *y,
         RmsnormQuantTilingData *tilingData)
     {
-        blockIdx_ = GetBlockIdx();
+        blockIdx_ = AscendC::GetBlockIdx();
         tilingData_ = tilingData;
-        if (blockIdx_ == GetBlockNum() - 1) {
+        if (blockIdx_ == AscendC::GetBlockNum() - 1) {
             curblockFactor_ = tilingData_->blockTail;
         } else {
             curblockFactor_ = tilingData_->blockFactor;
@@ -191,110 +189,110 @@ public:
 
     __aicore__ inline void CopyInR()
     {
-        LocalTensor<DATA_TYPE> gammaInLocalTensor = gammaInQueue_.AllocTensor<DATA_TYPE>();
-        LocalTensor<DATA_TYPE> betaInLocalTensor = betaInQueue_.AllocTensor<DATA_TYPE>();
+        AscendC::LocalTensor<DATA_TYPE> gammaInLocalTensor = gammaInQueue_.AllocTensor<DATA_TYPE>();
+        AscendC::LocalTensor<DATA_TYPE> betaInLocalTensor = betaInQueue_.AllocTensor<DATA_TYPE>();
 
-        LocalTensor<float> gammaLocalTensor = gammaBuf_.Get<float>();
-        LocalTensor<float> betaLocalTensor = betaBuf_.Get<float>();
-        DataCopyExtParams dataCopyParams;
+        AscendC::LocalTensor<float> gammaLocalTensor = gammaBuf_.Get<float>();
+        AscendC::LocalTensor<float> betaLocalTensor = betaBuf_.Get<float>();
+        AscendC::DataCopyExtParams dataCopyParams;
         dataCopyParams.blockCount = 1;
         dataCopyParams.blockLen = tilingData_->r * sizeof(DATA_TYPE);
         dataCopyParams.srcStride = 0;
         dataCopyParams.dstStride = 0;
-        DataCopyPadExtParams dataCopyPadParams{false, 0, 0, static_cast<DATA_TYPE>(0)};
-        DataCopyPad(gammaInLocalTensor, gammaGm_, dataCopyParams, dataCopyPadParams);
-        DataCopyPad(betaInLocalTensor, betaGm_, dataCopyParams, dataCopyPadParams);
+        AscendC::DataCopyPadExtParams dataCopyPadParams{false, 0, 0, static_cast<DATA_TYPE>(0)};
+        AscendC::DataCopyPad(gammaInLocalTensor, gammaGm_, dataCopyParams, dataCopyPadParams);
+        AscendC::DataCopyPad(betaInLocalTensor, betaGm_, dataCopyParams, dataCopyPadParams);
 
         gammaInQueue_.EnQue<DATA_TYPE>(gammaInLocalTensor);
         betaInQueue_.EnQue<DATA_TYPE>(betaInLocalTensor);
         gammaInLocalTensor = gammaInQueue_.DeQue<DATA_TYPE>();
         betaInLocalTensor = betaInQueue_.DeQue<DATA_TYPE>();
 
-        Cast(gammaLocalTensor, gammaInLocalTensor, RoundMode::CAST_NONE, tilingData_->r);
-        Cast(betaLocalTensor, betaInLocalTensor, RoundMode::CAST_NONE, tilingData_->r);
+        AscendC::Cast(gammaLocalTensor, gammaInLocalTensor, AscendC::RoundMode::CAST_NONE, tilingData_->r);
+        AscendC::Cast(betaLocalTensor, betaInLocalTensor, AscendC::RoundMode::CAST_NONE, tilingData_->r);
         gammaInQueue_.FreeTensor(gammaInLocalTensor);
         betaInQueue_.FreeTensor(betaInLocalTensor);
     }
 
     __aicore__ inline void CopyInX(int64_t loop)
     {
-        LocalTensor<DATA_TYPE> xInLocalTensor = xInQueue_.AllocTensor<DATA_TYPE>();
-        DataCopyExtParams dataCopyParams;
+        AscendC::LocalTensor<DATA_TYPE> xInLocalTensor = xInQueue_.AllocTensor<DATA_TYPE>();
+        AscendC::DataCopyExtParams dataCopyParams;
         dataCopyParams.blockCount = 1;
         dataCopyParams.blockLen = tilingData_->r * sizeof(DATA_TYPE);
         dataCopyParams.srcStride = 0;
         dataCopyParams.dstStride = 0;
-        DataCopyPadExtParams dataCopyPadParams{false, 0, 0, static_cast<DATA_TYPE>(0)};
-        DataCopyPad(xInLocalTensor, xGm_[loop * tilingData_->r], dataCopyParams, dataCopyPadParams);
+        AscendC::DataCopyPadExtParams dataCopyPadParams{false, 0, 0, static_cast<DATA_TYPE>(0)};
+        AscendC::DataCopyPad(xInLocalTensor, xGm_[loop * tilingData_->r], dataCopyParams, dataCopyPadParams);
         xInQueue_.EnQue(xInLocalTensor);
     }
 
     __simd_vf__ inline void ComputeRmsVf(__ubuf__ DATA_TYPE *xInAddr, __ubuf__ float *xAddr, __ubuf__ float *rmsAddr)
     {
-        MicroAPI::RegTensor<half> vregXIn;
-        MicroAPI::RegTensor<float> vregX;
-        MicroAPI::RegTensor<float> vregXQuared;
-        MicroAPI::RegTensor<float> vregReduceSum;
-        MicroAPI::RegTensor<float> vregRms;
+        AscendC::MicroAPI::RegTensor<half> vregXIn;
+        AscendC::MicroAPI::RegTensor<float> vregX;
+        AscendC::MicroAPI::RegTensor<float> vregXQuared;
+        AscendC::MicroAPI::RegTensor<float> vregReduceSum;
+        AscendC::MicroAPI::RegTensor<float> vregRms;
 
-        MicroAPI::MaskReg preg = MicroAPI::CreateMask<float>();
+        AscendC::MicroAPI::MaskReg preg = AscendC::MicroAPI::CreateMask<float>();
         uint32_t r = tilingData_->r;
 
-        MicroAPI::Duplicate(vregReduceSum, 0);
+        AscendC::MicroAPI::Duplicate(vregReduceSum, 0);
         for (uint16_t i = 0; i < vfLoopRNum_; i++) {
-            preg = MicroAPI::UpdateMask<float>(r);
-            DataCopy<half, MicroAPI::LoadDist::DIST_UNPACK_B16>(vregXIn, xInAddr + i * VL_FLOAT_SIZE);
-            Cast<float, half, castTraitB162B32>(vregX, vregXIn, preg);
-            MicroAPI::Mul(vregXQuared, vregX, vregX, preg);
-            MicroAPI::Add<float, MicroAPI::MaskMergeMode::MERGING>(vregReduceSum, vregReduceSum, vregXQuared, preg);
-            MicroAPI::DataCopy(xAddr + i * VL_FLOAT_SIZE, vregX, preg);
+            preg = AscendC::MicroAPI::UpdateMask<float>(r);
+            AscendC::MicroAPI::DataCopy<half, AscendC::MicroAPI::LoadDist::DIST_UNPACK_B16>(vregXIn, xInAddr + i * VL_FLOAT_SIZE);
+            AscendC::MicroAPI::Cast<float, half, castTraitB162B32>(vregX, vregXIn, preg);
+            AscendC::MicroAPI::Mul(vregXQuared, vregX, vregX, preg);
+            AscendC::MicroAPI::Add<float, AscendC::MicroAPI::MaskMergeMode::MERGING>(vregReduceSum, vregReduceSum, vregXQuared, preg);
+            AscendC::MicroAPI::DataCopy(xAddr + i * VL_FLOAT_SIZE, vregX, preg);
         }
 
         r = tilingData_->r;
-        preg = MicroAPI::UpdateMask<float>(r);
-        MicroAPI::ReduceSum(vregReduceSum, vregReduceSum, preg);
-        preg = MicroAPI::CreateMask<float, MicroAPI::MaskPattern::VL1>();
-        MicroAPI::Muls(vregRms, vregReduceSum, rInv_, preg);
-        MicroAPI::Adds(vregRms, vregRms, tilingData_->epsilon, preg);
-        MicroAPI::Sqrt(vregRms, vregRms, preg);
-        MicroAPI::DataCopy(rmsAddr, vregRms, preg);
+        preg = AscendC::MicroAPI::UpdateMask<float>(r);
+        AscendC::MicroAPI::ReduceSum(vregReduceSum, vregReduceSum, preg);
+        preg = AscendC::MicroAPI::CreateMask<float, AscendC::MicroAPI::MaskPattern::VL1>();
+        AscendC::MicroAPI::Muls(vregRms, vregReduceSum, rInv_, preg);
+        AscendC::MicroAPI::Adds(vregRms, vregRms, tilingData_->epsilon, preg);
+        AscendC::MicroAPI::Sqrt(vregRms, vregRms, preg);
+        AscendC::MicroAPI::DataCopy(rmsAddr, vregRms, preg);
     }
 
     __simd_vf__ inline void ComputeNormQuantVf(__ubuf__ float *xAddr, __ubuf__ float *gammaAddr,
         __ubuf__ float *betaAddr, __ubuf__ float *rmsAddr, __ubuf__ OUTPUT_DTYPE *yAddr)
     {
-        MicroAPI::RegTensor<float> vregX, vregGamma, vregBeta, vregRms, vregNorm;
-        MicroAPI::RegTensor<half> VregYFp16;
-        MicroAPI::RegTensor<OUTPUT_DTYPE> VregY;
-        MicroAPI::MaskReg preg = MicroAPI::CreateMask<float>();
+        AscendC::MicroAPI::RegTensor<float> vregX, vregGamma, vregBeta, vregRms, vregNorm;
+        AscendC::MicroAPI::RegTensor<half> VregYFp16;
+        AscendC::MicroAPI::RegTensor<OUTPUT_DTYPE> VregY;
+        AscendC::MicroAPI::MaskReg preg = AscendC::MicroAPI::CreateMask<float>();
         uint32_t r = tilingData_->r;
 
-        DataCopy<float, MicroAPI::LoadDist::DIST_BRC_B32>(vregRms, rmsAddr);
+        AscendC::MicroAPI::DataCopy<float, AscendC::MicroAPI::LoadDist::DIST_BRC_B32>(vregRms, rmsAddr);
         for (uint16_t i = 0; i < vfLoopRNum_; i++) {
-            preg = MicroAPI::UpdateMask<float>(r);
-            MicroAPI::DataCopy(vregX, xAddr + i * VL_FLOAT_SIZE);
-            MicroAPI::DataCopy(vregGamma, gammaAddr + i * VL_FLOAT_SIZE);
-            MicroAPI::DataCopy(vregBeta, betaAddr + i * VL_FLOAT_SIZE);
-            MicroAPI::Div(vregNorm, vregX, vregRms, preg);
-            MicroAPI::Mul(vregNorm, vregNorm, vregGamma, preg);
-            MicroAPI::Add(vregNorm, vregNorm, vregBeta, preg);
-            MicroAPI::Muls(vregNorm, vregNorm, scale_, preg);
-            MicroAPI::Adds(vregNorm, vregNorm, offset_, preg);
-            Cast<half, float, castTraitB322Int16>(VregYFp16, vregNorm, preg);
-            Cast<OUTPUT_DTYPE, half, castTraitB162Int8>(VregY, VregYFp16, preg);
-            MicroAPI::DataCopy<OUTPUT_DTYPE, MicroAPI::StoreDist::DIST_PACK4_B32>(
+            preg = AscendC::MicroAPI::UpdateMask<float>(r);
+            AscendC::MicroAPI::DataCopy(vregX, xAddr + i * VL_FLOAT_SIZE);
+            AscendC::MicroAPI::DataCopy(vregGamma, gammaAddr + i * VL_FLOAT_SIZE);
+            AscendC::MicroAPI::DataCopy(vregBeta, betaAddr + i * VL_FLOAT_SIZE);
+            AscendC::MicroAPI::Div(vregNorm, vregX, vregRms, preg);
+            AscendC::MicroAPI::Mul(vregNorm, vregNorm, vregGamma, preg);
+            AscendC::MicroAPI::Add(vregNorm, vregNorm, vregBeta, preg);
+            AscendC::MicroAPI::Muls(vregNorm, vregNorm, scale_, preg);
+            AscendC::MicroAPI::Adds(vregNorm, vregNorm, offset_, preg);
+            AscendC::MicroAPI::Cast<half, float, castTraitB322Int16>(VregYFp16, vregNorm, preg);
+            AscendC::MicroAPI::Cast<OUTPUT_DTYPE, half, castTraitB162Int8>(VregY, VregYFp16, preg);
+            AscendC::MicroAPI::DataCopy<OUTPUT_DTYPE, AscendC::MicroAPI::StoreDist::DIST_PACK4_B32>(
                 yAddr + i * VL_FLOAT_SIZE, VregY, preg);
         }
     }
 
     __aicore__ inline void Compute()
     {
-        LocalTensor<DATA_TYPE> xInLocalTensor = xInQueue_.DeQue<DATA_TYPE>();
-        LocalTensor<OUTPUT_DTYPE> yLocalTensor = yOutQueue_.AllocTensor<OUTPUT_DTYPE>();
-        LocalTensor<float> xLocalTensor = xBuf_.Get<float>();
-        LocalTensor<float> gammaLocalTensor = gammaBuf_.Get<float>();
-        LocalTensor<float> betaLocalTensor = betaBuf_.Get<float>();
-        LocalTensor<float> rmsLocalTensor = rmsBuf_.Get<float>();
+        AscendC::LocalTensor<DATA_TYPE> xInLocalTensor = xInQueue_.DeQue<DATA_TYPE>();
+        AscendC::LocalTensor<OUTPUT_DTYPE> yLocalTensor = yOutQueue_.AllocTensor<OUTPUT_DTYPE>();
+        AscendC::LocalTensor<float> xLocalTensor = xBuf_.Get<float>();
+        AscendC::LocalTensor<float> gammaLocalTensor = gammaBuf_.Get<float>();
+        AscendC::LocalTensor<float> betaLocalTensor = betaBuf_.Get<float>();
+        AscendC::LocalTensor<float> rmsLocalTensor = rmsBuf_.Get<float>();
 
         __ubuf__ DATA_TYPE *xInAddr = (__ubuf__ DATA_TYPE *)xInLocalTensor.GetPhyAddr();
         __ubuf__ float *xAddr = (__ubuf__ float *)xLocalTensor.GetPhyAddr();
@@ -312,10 +310,10 @@ public:
 
     __aicore__ inline void CopyOut(int64_t loop)
     {
-        LocalTensor<OUTPUT_DTYPE> yLocalTensor = yOutQueue_.DeQue<OUTPUT_DTYPE>();
-        DataCopyExtParams dataCopyParams{
+        AscendC::LocalTensor<OUTPUT_DTYPE> yLocalTensor = yOutQueue_.DeQue<OUTPUT_DTYPE>();
+        AscendC::DataCopyExtParams dataCopyParams{
             static_cast<uint16_t>(1), static_cast<uint32_t>(tilingData_->r * sizeof(OUTPUT_DTYPE)), 0, 0, 0};
-        DataCopyPad(yGm_[loop * tilingData_->r], yLocalTensor, dataCopyParams);
+        AscendC::DataCopyPad(yGm_[loop * tilingData_->r], yLocalTensor, dataCopyParams);
         yOutQueue_.FreeTensor(yLocalTensor);
     }
 
