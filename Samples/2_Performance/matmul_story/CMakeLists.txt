@@ -28,7 +28,7 @@ target_link_directories(quant_matmul_template_aswt PRIVATE ${ASCEND_DIR}/lib64)
 
 target_compile_options(quant_matmul_template_aswt PRIVATE
     "-xasc"
-    "--npu-arch=dav-3101"
+    "--npu-arch=dav-3510"
     "-w"
     "-O3"
 )

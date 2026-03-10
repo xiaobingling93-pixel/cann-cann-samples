@@ -23,7 +23,7 @@ target_include_directories(gelu_without_vf PRIVATE ${ASCEND_INCLUDE_DIRS})
 target_link_directories(gelu_without_vf PRIVATE ${ASCEND_DIR}/lib64)
 target_compile_options(gelu_without_vf PRIVATE
     "-xasc"
-    "--npu-arch=dav-3101"
+    "--npu-arch=dav-3510"
     "-w"
     "-O1"
 )
@@ -44,7 +44,7 @@ target_include_directories(gelu_with_vf PRIVATE ${ASCEND_INCLUDE_DIRS})
 target_link_directories(gelu_with_vf PRIVATE ${ASCEND_DIR}/lib64)
 target_compile_options(gelu_with_vf PRIVATE
     "-xasc"
-    "--npu-arch=dav-3101"
+    "--npu-arch=dav-3510"
     "-w"
     "-O1"
 )

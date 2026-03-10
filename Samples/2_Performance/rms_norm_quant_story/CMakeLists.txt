@@ -29,7 +29,7 @@ target_compile_definitions(rms_norm_quant_story PRIVATE SOURCE_DIR="${CMAKE_CURR
 target_link_directories(rms_norm_quant_story PRIVATE ${ASCEND_DIR}/lib64)
 target_compile_options(rms_norm_quant_story PRIVATE
     "-xasc"
-    "--npu-arch=dav-3101"
+    "--npu-arch=dav-3510"
     "-w"
     "-O3"
 )

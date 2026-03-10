@@ -24,7 +24,7 @@ target_link_directories(matmul PRIVATE ${ASCEND_DIR}/lib64)
 
 target_compile_options(matmul PRIVATE
     "-xasc"
-    "--npu-arch=dav-3101"
+    "--npu-arch=dav-3510"
     "-w"
     "-O3"
 )

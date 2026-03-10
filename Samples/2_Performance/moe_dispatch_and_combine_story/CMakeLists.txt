@@ -24,7 +24,7 @@ target_compile_definitions(moe_dispatch_and_combine_story PRIVATE SOURCE_DIR="${
 target_link_directories(moe_dispatch_and_combine_story PRIVATE ${ASCEND_DIR}/lib64)
 target_compile_options(moe_dispatch_and_combine_story PRIVATE
     "-xasc"
-    "--npu-arch=dav-3101"
+    "--npu-arch=dav-3510"
     "-w"
     "-O3"
 )

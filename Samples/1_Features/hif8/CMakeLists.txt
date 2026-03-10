@@ -23,7 +23,7 @@ target_include_directories(quantize_hif8_demo PRIVATE ${ASCEND_INCLUDE_DIRS})
 target_link_directories(quantize_hif8_demo PRIVATE ${ASCEND_DIR}/lib64)
 target_compile_options(quantize_hif8_demo PRIVATE
     "-xasc"
-    "--npu-arch=dav-3101"
+    "--npu-arch=dav-3510"
     "-w"
     "-O3"
 )
