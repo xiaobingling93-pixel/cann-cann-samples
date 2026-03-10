@@ -22,6 +22,12 @@
 
 namespace Block {
 
+// Block scheduler for quant matmul MX.
+//
+// Scheduling strategy:
+// - Use a fixed window on the M axis (`WINDOW_LEN`) to balance workloads when M tiles are small.
+// - Traverse N in a serpentine ("Z") pattern to improve cache locality.
+// - Optionally split the last round into smaller pieces (`mTailTile_` x `nTailTile_`) to reduce tail imbalance.
 template <class ProblemShape_, class L1TileShape_, class L0TileShape_, bool TransA_, bool TransB_>
 class BlockSchedulerQuantMatmulMx {
 public:
@@ -82,7 +88,18 @@ public:
         mCnt_ = CeilDiv(m_, baseM_);
         nCnt_ = CeilDiv(n_, baseN_);
         totalCnt_ = mCnt_ * nCnt_;
+
+        // `mCoreNum_` is the height of the scheduling window on the M axis.
+        //
+        // Intuition:
+        // - if M is large, blocks can be spread across a few adjacent M rows;
+        // - if M is small, using fewer rows avoids assigning many nearly-empty rows.
+        // Limit parallelism on M when `mCnt_` is small.
         mCoreNum_ = Min(WINDOW_LEN, mCnt_);
+
+        // The scheduler treats the tile space as:
+        // - a "main" region with full windows of height `mCoreNum_`
+        // - a final region handled by `mTailCoreNum_`
         mainRow_ = mCnt_ / mCoreNum_ - 1;
         mTailCoreNum_ = mCnt_ - mCoreNum_ * mainRow_;
         endBlockIdx_ = (totalCnt_ - 1) % blockNum_;
@@ -90,6 +107,9 @@ public:
         if (blockIdx_ > endBlockIdx_) {
             round_ -= 1;
         }
+
+        // Tail metadata records how many full-size tiles exist before the tail region
+        // and how the last merged tail tile should be interpreted.
         mBaseNormCnt_ = mCnt_ - params.mBaseTailSplitCnt;
         int64_t mMergeSize = m_ - mBaseNormCnt_ * baseM_;
         mBaseTailMain_ = params.mBaseTailSplitCnt == 1 ? mMergeSize : params.mTailMain;
@@ -106,6 +126,10 @@ public:
         mTailTile_ = mTailTile;
         nTailTile_ = nTailTile;
         totalTailTile_ = mTailTile * nTailTile;
+
+        // `tailOriCnt` is the number of original tiles that participate in tail splitting.
+        // Each of them can become up to `totalTailTile_` smaller sub-tiles.
+        // Expand the last round into `totalTailTile_` micro-tiles per original tile.
         uint64_t tailOriCnt = AscendC::Std::min(totalCnt_, endBlockIdx_ + 1);
         int64_t newEndBlockIdx = endBlockIdx_ + tailOriCnt * (totalTailTile_ - 1);
         if (blockIdx_ > endBlockIdx_ && blockIdx_ <= newEndBlockIdx) {
@@ -134,6 +158,9 @@ public:
         int64_t singleCoreM = baseM_;
         int64_t singleCoreN = baseN_;
 
+        // By default every tile is `[baseM, baseN]`.
+        // Only the last tiles on M/N shrink.
+        // Handle M/N tail tiles (last tiles may be smaller).
         if (Get<MNK_M>(blockCoord) >= mBaseNormCnt_) {
             singleCoreM = Get<MNK_M>(blockCoord) < mCnt_ - 1 ? mBaseTailMain_ : mBaseTailLast_;
         }
@@ -145,6 +172,10 @@ public:
             return {singleCoreM, singleCoreN, 0, 0};
         }
 
+        // The last scheduling round may split one logical tile into several smaller
+        // pieces. Those pieces share the same original tile index but differ in the
+        // local starting offsets returned below.
+        // Tail split: return sub-shape and its (m,n) offsets inside the original tile.
         int64_t singleCoreMSplit = CeilDiv(singleCoreM, mTailTile_);
         int64_t singleCoreNSplit = CeilDiv(singleCoreN, nTailTile_);
         int64_t mSplitIdx = (blockIdx_ % totalTailTile_) % mTailTile_;
@@ -171,6 +202,8 @@ public:
             return false;
         }
 
+        // In the very last round, `blockIdx_` may address a tail-split micro-tile.
+        // Fold it back to the original tile index before reconstructing logical coordinates.
         int64_t newBlockIdx = (roundIdx_ == round_ - 1) ? blockIdx_ / totalTailTile_ : blockIdx_;
         int64_t tileIdx = newBlockIdx + roundIdx_ * blockNum_;
         if (blockIdx_ < startBlockIdx_) {
@@ -180,17 +213,22 @@ public:
         } else {
             tileIdx -= startBlockIdx_;
         }
+
+        // Recover logical (row, col) coordinates from the flattened tile index.
+        // The main region uses `mCoreNum_` rows per scheduling window.
         int64_t rowIdx = tileIdx / nCnt_ / mCoreNum_;
         if (rowIdx < mainRow_) {
             Get<MNK_M>(blockCoord) = rowIdx * mCoreNum_ + tileIdx % mCoreNum_;
             Get<MNK_N>(blockCoord) = (tileIdx / mCoreNum_) % nCnt_;
         } else {
+            // The last region may use fewer rows (`mTailCoreNum_`) than the main windows.
             rowIdx = mainRow_;
             int64_t tailIdx = tileIdx - mainRow_ * mCoreNum_ * nCnt_;
             Get<MNK_M>(blockCoord) = mainRow_ * mCoreNum_ + tailIdx % mTailCoreNum_;
             Get<MNK_N>(blockCoord) = (tailIdx / mTailCoreNum_) % nCnt_;
         }
         if (rowIdx & 1) {
+            // Serpentine scan on N.
             Get<MNK_N>(blockCoord) = nCnt_ - 1 - Get<MNK_N>(blockCoord);
         }
         roundIdx_++;
