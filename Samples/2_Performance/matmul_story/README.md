@@ -1,5 +1,17 @@
 # MatMul算子性能优化实践与效果分析
 
+## 代码目录结构
+
+```
+matmul_story/
+├── common/              # 公共代码与 golden 脚本
+├── matmul_stubs/        # 核函数实现与样例
+│   ├── include/         # 头文件 (block, kernel, policy, utils)
+│   └── examples/
+│       └── quant_matmul_mxfp4/   # MXFP4 量化 MatMul 样例
+└── matmul_tutorials/    # step-by-step教程与分步示例
+```
+
 ## 引言
 
 **矩阵乘法**是神经网络和大模型的“底层计算引擎”，从特征传递到注意力机制实现，再到大规模参数运算，所有核心流程都依赖其完成。没有矩阵乘法就无法支撑模型的高效运行与规模突破。

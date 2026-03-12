@@ -9,7 +9,7 @@
  */
 
 /*!
- * \file quant_matmul_mxfp4.cpp
+ * \file quant_matmul_mxfp4_aswt.cpp
  * \brief
  */
 #include <iostream>
