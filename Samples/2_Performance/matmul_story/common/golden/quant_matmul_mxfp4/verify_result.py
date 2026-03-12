@@ -28,8 +28,8 @@ def verify_result():
         raise ValueError("output size != golden size")
 
     # 打印 tensor
-    output_tensor = torch.from_numpy(output).reshape(8192, 8192)
-    golden_tensor = torch.from_numpy(golden).reshape(8192, 8192)
+    output_tensor = torch.from_numpy(output)
+    golden_tensor = torch.from_numpy(golden)
     print("golden_data:\n", golden_tensor)
     print("output:\n", output_tensor)
 
