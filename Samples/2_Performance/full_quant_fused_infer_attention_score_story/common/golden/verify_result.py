@@ -87,10 +87,6 @@ def verify_result():
 
         rdiff = abs(output_val - golden_val) / denom
 
-        print(
-            "data index: %06d, expected: %-.9f, actual: %-.9f, rdiff: %-.6f"
-            % (idx, golden_val, output_val, rdiff)
-        )
 
     # ------------------------------
     # error ratio

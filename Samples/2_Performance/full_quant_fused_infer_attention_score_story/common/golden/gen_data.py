@@ -15,6 +15,7 @@ import numpy as np
 import en_dtypes
 import torch
 import torch_npu
+import os
 
 
 
@@ -39,6 +40,9 @@ def gen_golden_data_simple():
     q_tensor_tmp = q_tensor.numpy()
     k_tensor_tmp = k_tensor.numpy()
     v_tensor_tmp = v_tensor.numpy()
+
+    os.makedirs("input", exist_ok=True)
+    os.makedirs("output", exist_ok=True)
 
     q_tensor_tmp.tofile("./input/input_0.bin")
     k_tensor_tmp.tofile("./input/input_1.bin")

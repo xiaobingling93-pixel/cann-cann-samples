@@ -123,8 +123,25 @@ int main(int argc, char* argv[])
     // -------------------------------------------------------------------------
     // 4. Materialize the default tiling configuration for this problem shape.
     // -------------------------------------------------------------------------
+
+    // Query the platform object to learn how many AIC cores are available.
+    // This sample launches one block per AIC core and lets the scheduler assign
+    // multiple tiles to each block when the problem is larger than the machine.
+    auto ascendcPlatform = platform_ascendc::PlatformAscendCManager::GetInstance();
+    CHECK_COND(ascendcPlatform != nullptr, "Get ascendcPlatform failed.");
+    uint32_t blockDimToBeSet = ascendcPlatform->CalcTschBlockDim(ascendcPlatform->GetCoreNumAiv(),
+                    ascendcPlatform->GetCoreNumAic(), ascendcPlatform->GetCoreNumAiv());
+
     optiling::FlashAttentionScoreSimplifiedTilingData tilingData;
-    SetTilingData(tilingData);
+    if (ascendcPlatform->GetCoreNumAic() == 32) {
+        std::cerr << "CoreNum is 32." << std::endl;
+        SetTilingData(tilingData);
+    } else if (ascendcPlatform->GetCoreNumAic() == 28) {
+        SetTilingDataLess(tilingData);
+        std::cerr << "CoreNum is 28." << std::endl;
+    } else {
+        CHECK_COND(false, "CoreNum only support 28 0r 32");
+    }
 
     // -------------------------------------------------------------------------
     // 5. Allocate pinned host memory.
@@ -208,15 +225,6 @@ int main(int argc, char* argv[])
     CHECK_COND(
         aclrtMemcpyAsync(tilingDataDevice, tilingDataSize, &tilingData, tilingDataSize, ACL_MEMCPY_HOST_TO_DEVICE, stream) == ACL_SUCCESS,
         "aclrtMemcpyAsync failed.");
-
-    // Query the platform object to learn how many AIC cores are available.
-    //
-    // This sample launches one block per AIC core and lets the scheduler assign
-    // multiple tiles to each block when the problem is larger than the machine.
-    auto ascendcPlatform = platform_ascendc::PlatformAscendCManager::GetInstance();
-    CHECK_COND(ascendcPlatform != nullptr, "Get ascendcPlatform failed.");
-    uint32_t blockDimToBeSet = ascendcPlatform->CalcTschBlockDim(ascendcPlatform->GetCoreNumAiv(),
-                    ascendcPlatform->GetCoreNumAic(), ascendcPlatform->GetCoreNumAiv());
 
     // -------------------------------------------------------------------------
     // 8. Launch the kernel.
