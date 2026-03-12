@@ -33,3 +33,19 @@ cmake --build build --parallel
 
 # 安装到 build_out 目录
 cmake --install build --prefix ./build_out
+
+# 获取 git short hash
+GIT_HASH=$(git rev-parse --short HEAD)
+PACKAGE_NAME="build_out_${GIT_HASH}.zip"
+
+# 打包 build_out 为 zip
+zip -r "$PACKAGE_NAME" build_out
+
+# 校验 zip 文件
+echo "Verifying package..."
+if [ ! -f "$PACKAGE_NAME" ]; then
+    echo "Error: Package not created"
+    exit 1
+fi
+unzip -t "$PACKAGE_NAME"
+echo "Package created: $PACKAGE_NAME ($(du -h "$PACKAGE_NAME" | cut -f1))"
