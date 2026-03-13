@@ -9,12 +9,12 @@
  */
 
 /*!
- * \file quant_matmul_mx_kernel_aswt_impl.h
+ * \file quant_matmul_mx_kernel_swat_impl.h
  * \brief
  */
 
-#ifndef QUANT_MATMUL_MX_KERNEL_ASWT_IMPL_H
-#define QUANT_MATMUL_MX_KERNEL_ASWT_IMPL_H
+#ifndef QUANT_MATMUL_MX_KERNEL_SWAT_IMPL_H
+#define QUANT_MATMUL_MX_KERNEL_SWAT_IMPL_H
 #if ASC_DEVKIT_MAJOR >= 9
 #include "kernel_basic_intf.h"
 #else
@@ -37,11 +37,11 @@ namespace Kernel {
 using namespace AscendC;
 
 QBMM_MX_KERNEL_CLASS_TEM_PARAMS
-class QuantMatmulMxKernelAswtImpl {
+class QuantMatmulMxKernelSwatImpl {
 public:
-    __aicore__ inline QuantMatmulMxKernelAswtImpl()
+    __aicore__ inline QuantMatmulMxKernelSwatImpl()
     {}
-    __aicore__ inline ~QuantMatmulMxKernelAswtImpl()
+    __aicore__ inline ~QuantMatmulMxKernelSwatImpl()
     {}
 
     static constexpr bool transA = BlockMmad::transA;
@@ -118,7 +118,7 @@ private:
 };
 
 QBMM_MX_KERNEL_CLASS_TEM_PARAMS
-__aicore__ inline void QuantMatmulMxKernelAswtImpl<QBMM_MX_KERNEL_FUN_TEM_PARAMS>::operator()(const Params& params)
+__aicore__ inline void QuantMatmulMxKernelSwatImpl<QBMM_MX_KERNEL_FUN_TEM_PARAMS>::operator()(const Params& params)
 {
     // This path is implemented for AIC only. The example launches no AIV work.
     if ASCEND_IS_AIV {
@@ -139,7 +139,7 @@ __aicore__ inline void QuantMatmulMxKernelAswtImpl<QBMM_MX_KERNEL_FUN_TEM_PARAMS
 }
 
 QBMM_MX_KERNEL_CLASS_TEM_PARAMS
-__aicore__ inline void QuantMatmulMxKernelAswtImpl<QBMM_MX_KERNEL_FUN_TEM_PARAMS>::Init(const Params& params)
+__aicore__ inline void QuantMatmulMxKernelSwatImpl<QBMM_MX_KERNEL_FUN_TEM_PARAMS>::Init(const Params& params)
 {
     // The host has already allocated GM buffers and passed raw addresses here.
     // The kernel-side wrapper converts those addresses into typed GlobalTensor views.
@@ -155,7 +155,7 @@ __aicore__ inline void QuantMatmulMxKernelAswtImpl<QBMM_MX_KERNEL_FUN_TEM_PARAMS
 }
 
 QBMM_MX_KERNEL_CLASS_TEM_PARAMS
-__aicore__ inline void QuantMatmulMxKernelAswtImpl<QBMM_MX_KERNEL_FUN_TEM_PARAMS>::Process(
+__aicore__ inline void QuantMatmulMxKernelSwatImpl<QBMM_MX_KERNEL_FUN_TEM_PARAMS>::Process(
     const Params& params, BlockSchedulerOp& bs)
 {
     // Addressing relies on `Coordinate` to translate tile indices + tail split offsets into GM offsets.

@@ -16,5 +16,5 @@
 #ifndef BLOCK_SCHEDULER_POLICY_H
 #define BLOCK_SCHEDULER_POLICY_H
 
-struct QuantMatmulMxAswtScheduler {};
+struct QuantMatmulMxSwatScheduler {};
 #endif

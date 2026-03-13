@@ -17,23 +17,23 @@ set(CMAKE_C_COMPILER ${BISHENG})
 set(CMAKE_CXX_COMPILER ${BISHENG})
 set(CMAKE_LINKER ${BISHENG})
 
-add_executable(quant_matmul_mxfp4_aswt ${CMAKE_CURRENT_SOURCE_DIR}/matmul_stubs/examples/quant_matmul_mxfp4/quant_matmul_mxfp4_aswt.cpp)
+add_executable(quant_matmul_mxfp4_swat ${CMAKE_CURRENT_SOURCE_DIR}/matmul_stubs/examples/quant_matmul_mxfp4/quant_matmul_mxfp4_swat.cpp)
 
-target_include_directories(quant_matmul_mxfp4_aswt PRIVATE
+target_include_directories(quant_matmul_mxfp4_swat PRIVATE
     ${ASCEND_INCLUDE_DIRS}
     ${CMAKE_CURRENT_SOURCE_DIR}/common
     ${CMAKE_CURRENT_SOURCE_DIR}/matmul_stubs/include
 )
-target_link_directories(quant_matmul_mxfp4_aswt PRIVATE ${ASCEND_DIR}/lib64)
+target_link_directories(quant_matmul_mxfp4_swat PRIVATE ${ASCEND_DIR}/lib64)
 
-target_compile_options(quant_matmul_mxfp4_aswt PRIVATE
+target_compile_options(quant_matmul_mxfp4_swat PRIVATE
     "-xasc"
     "--npu-arch=dav-3510"
     "-w"
     "-O3"
 )
 
-target_link_libraries(quant_matmul_mxfp4_aswt
+target_link_libraries(quant_matmul_mxfp4_swat
     PRIVATE
     m
     dl
@@ -59,16 +59,16 @@ target_link_libraries(quant_matmul_mxfp4_aswt
 #           └── matmul_stubs/
 #               └── examples/
 #                   └── quant_matmul_mxfp4/
-#                       └── quant_matmul_mxfp4_aswt    <- 可执行文件
+#                       └── quant_matmul_mxfp4_swat    <- 可执行文件
 #
 # 使用方式 (请先进入安装目录 2_Performance/matmul_story):
 #   1. 运行 common/golden/quant_matmul_mxfp4/gen_data.py 生成测试数据与 golden
-#   2. 运行 matmul_stubs/examples/quant_matmul_mxfp4/quant_matmul_mxfp4_aswt 执行算子
+#   2. 运行 matmul_stubs/examples/quant_matmul_mxfp4/quant_matmul_mxfp4_swat 执行算子
 #   3. 运行 common/golden/quant_matmul_mxfp4/verify_result.py 验证结果
 # ============================================================================
 
 # Install 规则 1: 可执行文件 -> matmul_stubs/examples/quant_matmul_mxfp4/
-install(TARGETS quant_matmul_mxfp4_aswt
+install(TARGETS quant_matmul_mxfp4_swat
     RUNTIME DESTINATION 2_Performance/matmul_story/matmul_stubs/examples/quant_matmul_mxfp4
 )
 

@@ -51,8 +51,8 @@ class BlockMmadMx<
     DispatchPolicy_, L1TileShape_, L0TileShape_, AType_, LayoutA_, BType_, LayoutB_, CType_, LayoutC_, BiasType_,
     LayoutBias_, TileCopy_,
     AscendC::Std::enable_if_t<
-        AscendC::Std::is_base_of_v<QuantMatmulMxMultiBlockWithAswt<>, DispatchPolicy_> ||
-        AscendC::Std::is_base_of_v<QuantMatmulMxMultiBlockWithAswt<AscendC::Shape<_0, _0, _0, _0>, A_FULL_LOAD_MODE>,
+        AscendC::Std::is_base_of_v<QuantMatmulMxMultiBlockWithSwat<>, DispatchPolicy_> ||
+        AscendC::Std::is_base_of_v<QuantMatmulMxMultiBlockWithSwat<AscendC::Shape<_0, _0, _0, _0>, A_FULL_LOAD_MODE>,
                                    DispatchPolicy_>>> {
 public:
     using AType = AType_;

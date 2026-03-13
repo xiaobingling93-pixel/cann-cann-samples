@@ -237,7 +237,7 @@ public:
 };
 
 template <class ProblemShape_, class L1TileShape_, class L0TileShape_, bool TransA_, bool TransB_>
-struct BlockSchedulerSelector<ProblemShape_, L1TileShape_, L0TileShape_, QuantMatmulMxAswtScheduler,
+struct BlockSchedulerSelector<ProblemShape_, L1TileShape_, L0TileShape_, QuantMatmulMxSwatScheduler,
                               TransA_, TransB_> {
     using SchedulerOp = BlockSchedulerQuantMatmulMx<ProblemShape_, L1TileShape_, L0TileShape_, TransA_, TransB_>;
 };

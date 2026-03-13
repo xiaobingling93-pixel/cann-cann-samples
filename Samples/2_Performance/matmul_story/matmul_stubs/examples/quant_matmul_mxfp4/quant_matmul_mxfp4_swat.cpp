@@ -9,7 +9,7 @@
  */
 
 /*!
- * \file quant_matmul_mxfp4_aswt.cpp
+ * \file quant_matmul_mxfp4_swat.cpp
  * \brief
  */
 #include <iostream>
@@ -27,7 +27,7 @@
 #include "block/block_mmad_mx.h"
 #include "block/block_scheduler_policy.h"
 #include "block/block_scheduler_mx.h"
-#include "kernel/quant_matmul_mx_kernel_aswt_impl.h"
+#include "kernel/quant_matmul_mx_kernel_swat_impl.h"
 #include "policy/dispatch_policy.h"
 #include "utils/quant_matmul_tiling_data.h"
 
@@ -38,12 +38,12 @@
 // This sample kernel is intentionally thin:
 // 1. Select the concrete data types / layouts / policies.
 // 2. Convert runtime tiling data into the templated kernel parameter structure.
-// 3. Forward execution to `QuantMatmulMxKernelAswtImpl`.
+// 3. Forward execution to `QuantMatmulMxKernelSwatImpl`.
 //
 // The actual compute pipeline lives in:
 // - `BlockSchedulerQuantMatmulMx`  : maps logical tiles to hardware blocks.
 // - `BlockMmadMx`                  : manages L1/L0 movement and MMAD execution.
-// - `QuantMatmulMxKernelAswtImpl`  : connects scheduling, address mapping, and compute.
+// - `QuantMatmulMxKernelSwatImpl`  : connects scheduling, address mapping, and compute.
 __global__ __aicore__ void QuantMatmulMxfp4Kernel(
     GM_ADDR dA, GM_ADDR dB, GM_ADDR dScaleA, GM_ADDR dScaleB, GM_ADDR dBias, GM_ADDR dC,
     const QuantMatmulTilingData quantMatmulTilingData)
@@ -73,20 +73,20 @@ __global__ __aicore__ void QuantMatmulMxfp4Kernel(
     using L1TileShape = AscendC::Shape<_0, _0, _0>;
     using L0TileShape = AscendC::Shape<_0, _0, _0>;
 
-    using BlockScheduler = QuantMatmulMxAswtScheduler;
+    using BlockScheduler = QuantMatmulMxSwatScheduler;
     // Dispatch policy controls how data is staged across blocks.
     //
-    // - `QuantMatmulMxMultiBlockWithAswt<>`
+    // - `QuantMatmulMxMultiBlockWithSwat<>`
     //      Default path. Both A and B are staged tile-by-tile.
-    // - `QuantMatmulMxMultiBlockWithAswt<..., A_FULL_LOAD_MODE>`
+    // - `QuantMatmulMxMultiBlockWithSwat<..., A_FULL_LOAD_MODE>`
     //      A stays resident in L1 when the shape is friendly enough.
     //
     // This sample uses the simpler default path because it is easier to learn.
-    using DispatchPolicy = QuantMatmulMxMultiBlockWithAswt<>;
+    using DispatchPolicy = QuantMatmulMxMultiBlockWithSwat<>;
     using BlockMmad = Block::BlockMmadMx<
         DispatchPolicy, L1TileShape, L0TileShape, AType, layoutA, BType, layoutB, CType, layoutC, BiasType, layoutC, void>;
     using ProblemShape = MatmulShape;
-    using QuantMatmulKernelImpl = Kernel::QuantMatmulMxKernelAswtImpl<ProblemShape, BlockMmad, BlockScheduler>;
+    using QuantMatmulKernelImpl = Kernel::QuantMatmulMxKernelSwatImpl<ProblemShape, BlockMmad, BlockScheduler>;
 
     using Params = typename QuantMatmulKernelImpl::Params;
 
