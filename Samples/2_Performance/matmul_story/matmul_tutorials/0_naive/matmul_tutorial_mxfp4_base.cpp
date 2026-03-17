@@ -159,7 +159,7 @@ int main(int argc, char* argv[])
     std::filesystem::path exe_path = std::filesystem::canonical("/proc/self/exe");
     std::filesystem::path exe_dir = exe_path.parent_path();
     std::filesystem::path script =
-        exe_dir.parent_path().parent_path().parent_path() / "common/golden/quant_matmul_mxfp4/verify_result.py";
+        exe_dir.parent_path().parent_path() / "common/golden/quant_matmul_mxfp4/verify_result.py";
     std::string cmd = "python3 \"" + script.string() + "\" " + std::to_string(m) + " " + std::to_string(n);
     (void)system(cmd.c_str());
     return 0;
