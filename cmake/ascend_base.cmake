@@ -8,17 +8,24 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------
 
-cmake_minimum_required(VERSION 3.16)
+if(TARGET cann_samples_ascend_base)
+    return()
+endif()
 
-include(cmake/ascend.cmake)
-find_package(ASC)
-project(cann-samples LANGUAGES C CXX ASC)
+add_library(cann_samples_ascend_base INTERFACE)
+add_library(cann_samples::ascend_base ALIAS cann_samples_ascend_base)
 
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+target_include_directories(cann_samples_ascend_base INTERFACE
+    ${ASCEND_INCLUDE_DIRS}
+)
 
-include(cmake/ascend_base.cmake)
-include(cmake/tensor_api.cmake)
-add_subdirectory(Samples)
+target_link_directories(cann_samples_ascend_base INTERFACE
+    ${ASCEND_DIR}/lib64
+)
+
+target_link_libraries(cann_samples_ascend_base INTERFACE
+    m
+    dl
+    platform
+    tiling_api
+)

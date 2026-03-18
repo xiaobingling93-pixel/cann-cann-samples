@@ -9,14 +9,6 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------
 
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-set(CMAKE_C_COMPILER ${BISHENG})
-set(CMAKE_CXX_COMPILER ${BISHENG})
-set(CMAKE_LINKER ${BISHENG})
-
 # rms_norm_quant_story
 # add_executable(rms_norm_quant_story src/0_naive.cpp)
 # add_executable(rms_norm_quant_story src/1_preload_gamma.cpp)
@@ -25,9 +17,7 @@ set(CMAKE_LINKER ${BISHENG})
 # add_executable(rms_norm_quant_story src/4_double_buffer.cpp)
 # add_executable(rms_norm_quant_story src/5_ub_utilization.cpp)
 add_executable(rms_norm_quant_story src/6_binary_sum.cpp)
-target_include_directories(rms_norm_quant_story PRIVATE ${ASCEND_INCLUDE_DIRS})
 target_compile_definitions(rms_norm_quant_story PRIVATE SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_directories(rms_norm_quant_story PRIVATE ${ASCEND_DIR}/lib64)
 target_compile_options(rms_norm_quant_story PRIVATE
     "-xasc"
     "--npu-arch=dav-3510"
@@ -36,10 +26,7 @@ target_compile_options(rms_norm_quant_story PRIVATE
 )
 target_link_libraries(rms_norm_quant_story
     PRIVATE
-    m
-    dl
-    platform
-    tiling_api
+    cann_samples::ascend_base
     ascendcl
     runtime
     stdc++

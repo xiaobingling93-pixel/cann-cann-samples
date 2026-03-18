@@ -9,14 +9,6 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------
 
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-set(CMAKE_C_COMPILER ${BISHENG})
-set(CMAKE_CXX_COMPILER ${BISHENG})
-set(CMAKE_LINKER ${BISHENG})
-
 add_executable(full_quant_fused_infer_attention_score
 ${CMAKE_CURRENT_SOURCE_DIR}/examples/full_quant_fused_infer_attention_score_template.cpp)
 
@@ -41,13 +33,10 @@ set(COMMON_INCLUDE_DIRS
 )
 
 target_include_directories(full_quant_fused_infer_attention_score PRIVATE
-    ${ASCEND_INCLUDE_DIRS}
     ${CMAKE_CURRENT_SOURCE_DIR}/common
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${COMMON_INCLUDE_DIRS}
 )
-
-target_link_directories(full_quant_fused_infer_attention_score PRIVATE ${ASCEND_DIR}/lib64)
 
 target_compile_options(full_quant_fused_infer_attention_score PRIVATE
     "-xasc"
@@ -58,10 +47,7 @@ target_compile_options(full_quant_fused_infer_attention_score PRIVATE
 
 target_link_libraries(full_quant_fused_infer_attention_score
     PRIVATE
-    m
-    dl
-    platform
-    tiling_api
+    cann_samples::ascend_base
 )
 
 # ============================================================================

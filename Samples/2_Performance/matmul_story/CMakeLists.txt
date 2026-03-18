@@ -10,23 +10,13 @@
 # ----------------------------------------------------------------------------
 
 add_subdirectory(matmul_tutorials)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-set(CMAKE_C_COMPILER ${BISHENG})
-set(CMAKE_CXX_COMPILER ${BISHENG})
-set(CMAKE_LINKER ${BISHENG})
 
 add_executable(quant_matmul_mxfp4_swat ${CMAKE_CURRENT_SOURCE_DIR}/matmul_recipes/examples/quant_matmul_mxfp4/quant_matmul_mxfp4_swat.cpp)
 
 target_include_directories(quant_matmul_mxfp4_swat PRIVATE
-    ${ASCEND_INCLUDE_DIRS}
-    ${CMAKE_SOURCE_DIR}/third_party/tensor_api
     ${CMAKE_CURRENT_SOURCE_DIR}/common
     ${CMAKE_CURRENT_SOURCE_DIR}/matmul_recipes/include
 )
-target_link_directories(quant_matmul_mxfp4_swat PRIVATE ${ASCEND_DIR}/lib64)
 
 target_compile_options(quant_matmul_mxfp4_swat PRIVATE
     "-xasc"
@@ -37,10 +27,8 @@ target_compile_options(quant_matmul_mxfp4_swat PRIVATE
 
 target_link_libraries(quant_matmul_mxfp4_swat
     PRIVATE
-    m
-    dl
-    platform
-    tiling_api
+    cann_samples::ascend_base
+    cann_samples::tensor_api
 )
 
 # ============================================================================
