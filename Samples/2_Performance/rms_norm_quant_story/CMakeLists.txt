@@ -10,27 +10,39 @@
 # ----------------------------------------------------------------------------
 
 # rms_norm_quant_story
-# add_executable(rms_norm_quant_story src/0_naive.cpp)
-# add_executable(rms_norm_quant_story src/1_preload_gamma.cpp)
-# add_executable(rms_norm_quant_story src/2_multi_core.cpp)
-# add_executable(rms_norm_quant_story src/3_vf.cpp)
-# add_executable(rms_norm_quant_story src/4_double_buffer.cpp)
-# add_executable(rms_norm_quant_story src/5_ub_utilization.cpp)
-add_executable(rms_norm_quant_story src/6_binary_sum.cpp)
-target_compile_definitions(rms_norm_quant_story PRIVATE SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-target_compile_options(rms_norm_quant_story PRIVATE
-    "-xasc"
-    "--npu-arch=dav-3510"
-    "-w"
-    "-O3"
+set(CPP_FILES
+    src/0_naive.cpp
+    src/1_preload_gamma.cpp
+    src/2_multi_core.cpp
+    src/3_vf.cpp
+    src/4_double_buffer.cpp
+    src/5_ub_utilization.cpp
+    src/6_binary_sum.cpp
 )
-target_link_libraries(rms_norm_quant_story
-    PRIVATE
-    cann_samples::ascend_base
-    ascendcl
-    runtime
-    stdc++
-)
-install(TARGETS rms_norm_quant_story
+
+set(INSTALL_TARGETS "")
+foreach(CPP_FILE ${CPP_FILES})
+    get_filename_component(TARGET_NAME ${CPP_FILE} NAME_WE)
+    add_executable(${TARGET_NAME} ${CPP_FILE})
+    target_compile_definitions(${TARGET_NAME} PRIVATE SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    target_compile_options(${TARGET_NAME} PRIVATE
+        "-xasc"
+        "--npu-arch=dav-3510"
+        "-w"
+        "-O3"
+    )
+    target_link_libraries(${TARGET_NAME}
+        PRIVATE
+        cann_samples::ascend_base
+        ascendcl
+        runtime
+        stdc++
+    )
+    list(APPEND INSTALL_TARGETS ${TARGET_NAME})
+endforeach()
+
+add_custom_target(rms_norm_quant_story DEPENDS ${INSTALL_TARGETS})
+
+install(TARGETS ${INSTALL_TARGETS}
     RUNTIME DESTINATION 2_Performance/rms_norm_quant_story
 )
