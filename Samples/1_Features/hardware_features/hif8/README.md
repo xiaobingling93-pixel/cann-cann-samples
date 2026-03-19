@@ -62,6 +62,7 @@ AscendC::DataCopy(yGm, yOutput, TOTAL_LENGTH);
 - 样例执行
   ```bash
   # 根据 ${git_clone_path}/README.md 编译Samples仓的所有执行用例
+  # 安装后目录结构保持与源码一致，scripts/ 目录会被保留
   cd build_out/1_Features/hardware_features/hif8 # 进入hif8的build结果目录
   python3 scripts/gen_data.py   # 生成测试输入数据
   ./quantize_hif8_demo  # 执行编译生成的可执行程序，执行样例

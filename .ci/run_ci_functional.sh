@@ -1,5 +1,5 @@
+#!/bin/bash
 # ----------------------------------------------------------------------------
-# This program is free software, you can redistribute it and/or modify it.
 # Copyright (c) 2026 Huawei Technologies Co., Ltd.
 # This file is a part of the CANN Open Software.
 # Licensed under CANN Open Software License Agreement Version 2.0 (the "License").
@@ -8,25 +8,22 @@
 # BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------
+#
+# Thin wrapper for manifest-driven CI functional tests.
 
-# quantize
-add_executable(quantize_hif8_demo quantize_custom.cpp)
-target_compile_options(quantize_hif8_demo PRIVATE
-    "-xasc"
-    "--npu-arch=dav-3510"
-    "-w"
-    "-O3"
-)
-target_link_libraries(quantize_hif8_demo
-    PRIVATE
-    cann_samples::ascend_base
-)
-install(TARGETS quantize_hif8_demo
-    RUNTIME DESTINATION 1_Features/hardware_features/hif8
-)
-install(DIRECTORY
-    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/
-    DESTINATION 1_Features/hardware_features/hif8/scripts
-    FILES_MATCHING
-    PATTERN "*.py"
-)
+set -euo pipefail
+set -x
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "${PROJECT_ROOT}"
+
+MANIFEST_PATH="${MANIFEST_PATH:-tests/ci_functional_test.yaml}"
+ARTIFACTS_DIR="${ARTIFACTS_DIR:-test_artifacts/ci_functional}"
+
+bash .ci/build.sh
+
+python3 .ci/run_ci_functional.py \
+    --manifest "${MANIFEST_PATH}" \
+    --artifacts-dir "${ARTIFACTS_DIR}" \
+    "$@"
