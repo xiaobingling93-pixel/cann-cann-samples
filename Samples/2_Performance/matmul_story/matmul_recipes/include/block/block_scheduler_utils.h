@@ -10,7 +10,7 @@
 
 /*!
  * \file block_scheduler_utils.h
- * \brief
+ * \brief Utility helpers shared by the SWAT block schedulers.
  */
 
 #ifndef BLOCK_SCHEDULER_UTILS_H
@@ -18,9 +18,11 @@
 
 namespace Block {
 
-// Base template definition for BlockSchedulerSelector
-template <class ProblemShape, class L1TileShape, class L0TileShape, class BlockScheduler = void,
-          bool TransA = false, bool TransB = false>
+// Base template for scheduler specialization.
+//
+// The concrete MXFP4 scheduler is selected later from problem shape, tile
+// shape, transpose flags, and the SWAT mode encoded in the policy tag.
+template <class ProblemShape, class BlockScheduler = void, bool TransA = false, bool TransB = false>
 struct BlockSchedulerSelector;
 
 } // namespace Block

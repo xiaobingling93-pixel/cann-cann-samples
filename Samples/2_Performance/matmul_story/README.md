@@ -6,11 +6,12 @@
 matmul_story/
 ├── common/                                     # 公共工具函数与验证脚本
 ├── docs/                                       # 性能优化技术文档
-├── matmul_recipes/                               # 算子实现与示例代码
+├── matmul_recipes/                             # 算子实现与示例代码
 │   ├── include/                                # 头文件 (block, kernel, policy, utils)
 │   └── examples/                               # 算子示例目录
 │       ├── quant_matmul_mxfp4/                 # MXFP4 量化矩阵乘示例
-│       │   ├── quant_matmul_mxfp4_swat.cpp     # SWAT模板Host侧实现
+│       │   ├── quant_matmul_mxfp4_swat.cpp               # SWAT模板Host侧实现（非全载）
+│       │   ├── quant_matmul_mxfp4_a_full_load.cpp        # SWAT模板Host侧实现（A全载）
 │       │   └── README.md                       # 示例说明文档
 │       ├── ...                                 # 其他算子示例
 │       └── matmul_a16w16/                      # A16W16 非量化矩阵乘示例

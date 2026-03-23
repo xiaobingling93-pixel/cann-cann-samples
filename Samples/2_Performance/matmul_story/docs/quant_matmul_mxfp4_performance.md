@@ -73,7 +73,7 @@ MXFP4执行时的完整数据搬运流程如下图所示：
 
 #### Tensor scaleA 的搬运说明
 
-> 因为MX量化GroupSize=32的pergroup量化，因此K方向的大小是输入矩阵的1/32。
+> 因为MX量化GroupSize=32的pergroup量化，因此K方向的大小是输入矩阵的1/32。这里描述的是Scale张量的分组与存储布局，输入侧仅要求`k`为偶数。
 
 | **缓冲区变化** | **Shape排布变化** | **Layout变化** | **所属流水** | **所用指令** |
 |-|-|-|-|-|
@@ -86,7 +86,7 @@ MXFP4执行时的完整数据搬运流程如下图所示：
 
 #### Tensor scaleB 的搬运说明
 
-> 因为MX量化GroupSize=32的pergroup量化，因此K方向的大小是输入矩阵的1/32。
+> 因为MX量化GroupSize=32的pergroup量化，因此K方向的大小是输入矩阵的1/32。这里描述的是Scale张量的分组与存储布局，输入侧仅要求`k`为偶数。
 
 | **缓冲区变化** | **Shape排布变化** | **Layout变化** | **所属流水** | **所用指令** |
 |-|-|-|-|-|
@@ -409,7 +409,8 @@ $$
   - Double Buffer：隐藏内存访问延迟，提升流水线并行度
   - UnitFlag：提升计算与搬出流水并行度
 
-- **模板实现**：[quant_matmul_mxfp4_swat.cpp](../matmul_recipes/examples/quant_matmul_mxfp4/quant_matmul_mxfp4_swat.cpp)
+- **模板实现（非A全载）**：[quant_matmul_mxfp4_swat.cpp](../matmul_recipes/examples/quant_matmul_mxfp4/quant_matmul_mxfp4_swat.cpp)
+- **模板实现（A全载）**：[quant_matmul_mxfp4_a_full_load.cpp](../matmul_recipes/examples/quant_matmul_mxfp4/quant_matmul_mxfp4_a_full_load.cpp)
 
 ### FullLoad模板
 

@@ -19,6 +19,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
 #include "common_utils.h"
 
 inline bool ReadFile(const std::string& filePath, size_t& fileSize, void* buffer, size_t bufferSize)

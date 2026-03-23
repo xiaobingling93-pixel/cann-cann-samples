@@ -9,8 +9,10 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------
 
+# Minimal standalone target definition for the naive MXFP4 tutorial launcher.
 add_executable(matmul_tutorial_mxfp4_base ${CMAKE_CURRENT_SOURCE_DIR}/matmul_tutorial_mxfp4_base.cpp)
 
+# Match the tutorial compile flags used by the parent `matmul_story` CMake.
 target_compile_options(matmul_tutorial_mxfp4_base PRIVATE
     "-xasc"
     "--npu-arch=dav-3510"
@@ -18,11 +20,14 @@ target_compile_options(matmul_tutorial_mxfp4_base PRIVATE
     "-O3"
 )
 
+# The tutorial only depends on the shared Ascend runtime helper target.
 target_link_libraries(matmul_tutorial_mxfp4_base
     PRIVATE
     cann_samples::ascend_base
 )
 
+# Install under the tutorial-specific subtree so the colocated scripts keep
+# their expected relative layout.
 install(TARGETS matmul_tutorial_mxfp4_base
     RUNTIME DESTINATION 2_Performance/matmul_story/matmul_tutorials/0_naive
 )

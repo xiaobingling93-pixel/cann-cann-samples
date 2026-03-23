@@ -15,8 +15,8 @@
 
 #ifndef COMMON_UTILS_H
 #define COMMON_UTILS_H
-#include <iostream>
 #include <fstream>
+#include <iostream>
 
 #define ERROR_LOG(fmt, args...) fprintf(stdout, "[ERROR]  " fmt "\n", ##args)
 #define CHECK_COND(cond, msg)                                                                                  \
@@ -37,7 +37,7 @@ inline T CeilDiv(T a, T b)
 }
 
 template <typename T>
-inline T CeilAlign(T a, T b)
+inline T Align(T a, T b)
 {
     return CeilDiv(a, b) * b;
 }
@@ -49,6 +49,18 @@ inline T FloorAlign(T a, T b)
         return a;
     }
     return a / b * b;
+}
+
+template <typename T>
+T GetShapeWithDataTypeFP4(T size)
+{
+    return size << 1;
+}
+
+template <typename T>
+T GetSizeWithDataTypeFP4(T shape)
+{
+    return (shape + 1) >> 1;
 }
 
 #endif // COMMON_UTILS_H

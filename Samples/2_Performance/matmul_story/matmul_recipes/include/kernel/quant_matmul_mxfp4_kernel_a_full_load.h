@@ -1,0 +1,223 @@
+/**
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
+
+/*!
+ * \file quant_matmul_mxfp4_kernel_a_full_load.h
+ * \brief Kernel-side SWAT MXFP4 implementation for the A-full-load path.
+ */
+
+#ifndef QUANT_MATMUL_MXFP4_KERNEL_A_FULL_LOAD_H
+#define QUANT_MATMUL_MXFP4_KERNEL_A_FULL_LOAD_H
+
+#if ASC_DEVKIT_MAJOR >= 9
+#include "kernel_basic_intf.h"
+#else
+#include "kernel_operator.h"
+#include "kernel_operator_intf.h"
+#endif
+
+#include "kernel_utils/common_utils.h"
+#include "kernel_utils/layout_utils.h"
+#include "kernel_utils/tuple_utils.h"
+#include "include/tensor.h"
+
+#include "../block/quant_matmul_mxfp4_block_mmad_a_full_load.h"
+#include "../block/quant_matmul_mxfp4_block_scheduler_a_full_load.h"
+#include "../utils/quant_matmul_constant.h"
+
+namespace Kernel {
+// Keep the class template parameter list in one place so the declaration and
+// out-of-line member definitions stay perfectly aligned.
+#define QBMM_MX_KERNEL_A_FULL_LOAD_CLASS_TEM_PARAMS \
+    template <class ProblemShape, class BlockMmad, class BlockScheduler>
+#define QBMM_MX_KERNEL_A_FULL_LOAD_FUN_TEM_PARAMS ProblemShape, BlockMmad, BlockScheduler
+
+using namespace AscendC;
+
+QBMM_MX_KERNEL_A_FULL_LOAD_CLASS_TEM_PARAMS
+class QuantMatmulMxKernelAFullLoad {
+public:
+    __aicore__ inline QuantMatmulMxKernelAFullLoad()
+    {}
+    __aicore__ inline ~QuantMatmulMxKernelAFullLoad()
+    {}
+
+    static constexpr bool transA = BlockMmad::transA;
+    static constexpr bool transB = BlockMmad::transB;
+
+    // The kernel layer does not own a scheduling policy itself; it selects the
+    // concrete scheduler from the block pipeline traits.
+    using BlockSchedulerOp =
+        typename Block::BlockSchedulerSelector<ProblemShape, BlockScheduler, transA, transB>::SchedulerOp;
+
+    using BlockMmadParams = typename BlockMmad::Params;
+    using L1Params = typename BlockMmad::L1Params;
+    using AType = typename BlockMmad::AType;
+    using BType = typename BlockMmad::BType;
+    using CType = typename BlockMmad::CType;
+
+    // The kernel normalizes the problem shape to a plain (m, n, k) tuple
+    // before passing it to the scheduler and block MMAD operator.
+    using TupleShape = AscendC::Shape<int64_t, int64_t, int64_t>;
+    using BlockShape = AscendC::Shape<int64_t, int64_t, int64_t, int64_t>;
+    using BlockCoord = AscendC::Coord<int64_t, int64_t, int64_t, int64_t>;
+    using BlockOffset = AscendC::Shape<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t>;
+    using BlockSchedulerParams = typename BlockSchedulerOp::Params;
+
+    using MakeLayoutA = AscendC::Te::NDLayoutFormat<AType>;
+    using MakeLayoutB = AscendC::Te::DNLayoutFormat<BType>;
+    using MakeLayoutScaleA = AscendC::Te::ScaleANDLayoutFormat<fp8_e8m0_t>;
+    using MakeLayoutScaleB = AscendC::Te::ScaleBDNLayoutFormat<fp8_e8m0_t>;
+
+    struct QBMMTiling {
+        // Base tile shape and L0C buffering mode selected by host tiling.
+        uint32_t baseM;
+        uint32_t baseN;
+        uint32_t baseK;
+        uint8_t dbL0C;
+    };
+
+    struct Params {
+        // `problemShape` and `qbmmParams` describe the global launch shape,
+        // while the other fields carry the GM pointers and per-path tile data.
+        ProblemShape problemShape;
+        BlockMmadParams mmadParams;
+        L1Params l1Params;
+        BlockSchedulerParams schParams;
+        QBMMTiling qbmmParams;
+    };
+
+public:
+    // Launch one SWAT kernel instance on the current AIC block.
+    __aicore__ inline void operator()(const Params& params);
+
+private:
+    // Bind raw GM addresses to typed kernel pointers once per launch.
+    __aicore__ inline void ResetGmAddr(const Params& params);
+
+    // Wrap the full GM tensors and repeatedly slice them into per-block views
+    // according to the scheduler output.
+    __aicore__ inline void Process(const Params& params, BlockSchedulerOp& bs);
+
+    // `ProblemShape` is kept generic at the template boundary, but the kernel
+    // implementation works with a fixed 3D tuple internally.
+    __aicore__ inline TupleShape ToShapeTuple(const ProblemShape& problemShape)
+    {
+        return {problemShape.m, problemShape.n, problemShape.k};
+    }
+
+private:
+    BlockMmad mmadOp_;
+    TupleShape problemShape_{};
+    // Reserve a compact offset bundle for future GM sub-view bookkeeping.
+    BlockOffset blockOffset_{0, 0, 0, 0, 0, 0};
+    __gm__ AType* aGmAddr_;
+    __gm__ BType* bGmAddr_;
+    __gm__ CType* cGmAddr_;
+    __gm__ fp8_e8m0_t* scaleAGmAddr_;
+    __gm__ fp8_e8m0_t* scaleBGmAddr_;
+};
+
+QBMM_MX_KERNEL_A_FULL_LOAD_CLASS_TEM_PARAMS
+__aicore__ inline void QuantMatmulMxKernelAFullLoad<QBMM_MX_KERNEL_A_FULL_LOAD_FUN_TEM_PARAMS>::operator()(
+    const Params& params)
+{
+    // The quantized matmul compute path runs on AIC only. AIV blocks exit
+    // immediately so mixed-core launches remain valid.
+    if ASCEND_IS_AIV {
+        return;
+    }
+
+    ResetGmAddr(params);
+    BlockSchedulerOp bs(params.problemShape, params.schParams);
+    problemShape_ = ToShapeTuple(params.problemShape);
+    // The kernel layer only builds the scheduling and tensor wrappers; the
+    // heavy data movement and MMAD sequence lives in `BlockMmad`.
+    BlockShape l0TileShape{params.qbmmParams.baseM, params.qbmmParams.baseN, params.qbmmParams.baseK, 0};
+    bool enableL0CPingPong = (params.qbmmParams.dbL0C > 1);
+    mmadOp_.Init(problemShape_, l0TileShape, params.l1Params, enableL0CPingPong);
+    Process(params, bs);
+}
+
+QBMM_MX_KERNEL_A_FULL_LOAD_CLASS_TEM_PARAMS
+__aicore__ inline void QuantMatmulMxKernelAFullLoad<QBMM_MX_KERNEL_A_FULL_LOAD_FUN_TEM_PARAMS>::ResetGmAddr(
+    const Params& params)
+{
+    // The sample launcher passes raw GM addresses through `Params`; convert
+    // them here once so the hot loop works with typed pointers only.
+    aGmAddr_ = reinterpret_cast<__gm__ AType*>(params.mmadParams.aGmAddr);
+    bGmAddr_ = reinterpret_cast<__gm__ BType*>(params.mmadParams.bGmAddr);
+    cGmAddr_ = reinterpret_cast<__gm__ CType*>(params.mmadParams.cGmAddr);
+    scaleAGmAddr_ = reinterpret_cast<__gm__ fp8_e8m0_t*>(params.mmadParams.scaleAGmAddr);
+    scaleBGmAddr_ = reinterpret_cast<__gm__ fp8_e8m0_t*>(params.mmadParams.scaleBGmAddr);
+}
+
+QBMM_MX_KERNEL_A_FULL_LOAD_CLASS_TEM_PARAMS
+__aicore__ inline void QuantMatmulMxKernelAFullLoad<QBMM_MX_KERNEL_A_FULL_LOAD_FUN_TEM_PARAMS>::Process(
+    const Params& params, BlockSchedulerOp& bs)
+{
+    // Build full-GM tensor views once, then slice them per scheduled block.
+    auto layoutA = MakeLayoutA{}(params.problemShape.m, params.problemShape.k);
+    auto layoutScaleA = MakeLayoutScaleA{}(
+        params.problemShape.m, CeilDiv(params.problemShape.k, MXFP_DIVISOR_SIZE) * MXFP_MULTI_BASE_SIZE);
+    auto layoutB = MakeLayoutB{}(params.problemShape.k, params.problemShape.n);
+    auto layoutScaleB = MakeLayoutScaleB{}(
+        CeilDiv(params.problemShape.k, MXFP_DIVISOR_SIZE) * MXFP_MULTI_BASE_SIZE, params.problemShape.n);
+    auto layoutC = AscendC::Te::MakeNDLayout<CType>(params.problemShape.m, params.problemShape.n);
+    
+    auto gmA = AscendC::Te::MakeTensor(AscendC::Te::MakeGMmemPtr(aGmAddr_), layoutA);
+    auto gmScaleA = AscendC::Te::MakeTensor(AscendC::Te::MakeGMmemPtr(scaleAGmAddr_), layoutScaleA);
+    auto gmB = AscendC::Te::MakeTensor(AscendC::Te::MakeGMmemPtr(bGmAddr_), layoutB);
+    auto gmScaleB = AscendC::Te::MakeTensor(AscendC::Te::MakeGMmemPtr(scaleBGmAddr_), layoutScaleB);
+    auto gmC = AscendC::Te::MakeTensor(AscendC::Te::MakeGMmemPtr(cGmAddr_), layoutC);
+
+    BlockCoord blockIdx;
+    constexpr int64_t kPos = 0L;
+    while (bs.GetTileIdx(blockIdx)) {
+        // The scheduler packs GM origin into M/N and retains logical tile
+        // indices in K/B so shape reconstruction still works.
+        int64_t mPos = Get<MNK_M>(blockIdx);
+        int64_t nPos = Get<MNK_N>(blockIdx);
+        BlockShape singleShape = bs.GetBlockShape(blockIdx);
+        if (Get<MNK_M>(singleShape) <= 0 || Get<MNK_N>(singleShape) <= 0) {
+            // Tail splitting can create empty logical slices; ignore them and
+            // stop the current block once no useful work remains.
+            return;
+        }
+
+        // `blockIdx` now carries both GM origin and logical tile metadata.
+        auto gmBlockA = gmA(
+            AscendC::Te::MakeCoord(mPos, kPos), AscendC::Te::MakeShape(Get<MNK_M>(singleShape), params.problemShape.k));
+        auto gmBlockScaleA = gmScaleA(
+            AscendC::Te::MakeCoord(mPos, kPos),
+            AscendC::Te::MakeShape(
+                Get<MNK_M>(singleShape), CeilDiv(params.problemShape.k, MXFP_DIVISOR_SIZE) * MXFP_MULTI_BASE_SIZE));
+        auto gmBlockB = gmB(
+            AscendC::Te::MakeCoord(kPos, nPos), AscendC::Te::MakeShape(params.problemShape.k, Get<MNK_N>(singleShape)));
+        auto gmBlockScaleB = gmScaleB(
+            AscendC::Te::MakeCoord(kPos, nPos),
+            AscendC::Te::MakeShape(
+                CeilDiv(params.problemShape.k, MXFP_DIVISOR_SIZE) * MXFP_MULTI_BASE_SIZE, Get<MNK_N>(singleShape)));
+        auto gmBlockC = gmC(
+            AscendC::Te::MakeCoord(mPos, nPos),
+            AscendC::Te::MakeShape(Get<MNK_M>(singleShape), Get<MNK_N>(singleShape)));
+
+        // The block MMAD layer owns all data movement below GM granularity and
+        // performs the actual accumulation for this scheduled tile.
+        mmadOp_(gmBlockA, gmBlockB, gmBlockScaleA, gmBlockScaleB, gmBlockC, singleShape);
+    }
+}
+
+} // namespace Kernel
+
+#undef QBMM_MX_KERNEL_A_FULL_LOAD_CLASS_TEM_PARAMS
+#undef QBMM_MX_KERNEL_A_FULL_LOAD_FUN_TEM_PARAMS
+
+#endif

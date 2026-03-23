@@ -10,40 +10,53 @@
 
 /*!
  * \file quant_matmul_constant.h
- * \brief
+ * \brief Shared constants and helper types for MXFP4 quantized matmul.
  */
 #ifndef UTILS_QUANT_MATMUL_CONSTANT_H
 #define UTILS_QUANT_MATMUL_CONSTANT_H
 
+#ifndef __CCE_AICORE__
+#include <cstdint>
+#endif
+
+// Offsets inside the shared GM offset tuple used by quant matmul helpers.
 constexpr uint64_t IDX_A_OFFSET = 0UL;
 constexpr uint64_t IDX_B_OFFSET = 1UL;
-constexpr uint64_t IDX_X1SCALE_OFFSET = 2UL;
-constexpr uint64_t IDX_X2SCALE_OFFSET = 3UL;
-constexpr uint64_t IDX_BIAS_OFFSET = 4UL;
-constexpr uint64_t IDX_C_OFFSET = 5UL;
+constexpr uint64_t IDX_SCALEA_OFFSET = 2UL;
+constexpr uint64_t IDX_SCALEB_OFFSET = 3UL;
+constexpr uint64_t IDX_C_OFFSET = 4UL;
+
+// Packed block-shape slots: M/N extents followed by optional M/N split
+// offsets returned by the scheduler.
 constexpr uint64_t IDX_M_TILEIDX = 0UL;
 constexpr uint64_t IDX_N_TILEIDX = 1UL;
 constexpr uint64_t IDX_M_TAIL_SPLIT_TILEIDX = 2UL;
 constexpr uint64_t IDX_N_TAIL_SPLIT_TILEIDX = 3UL;
- 
+
+// Generic (m, n, k) tuple indices shared by host and device helpers.
 constexpr uint64_t IDX_M_IDX = 0UL;
 constexpr uint64_t IDX_N_IDX = 1UL;
 constexpr uint64_t IDX_K_IDX = 2UL;
 
+// MMAD accumulation mode selectors.
 constexpr uint32_t FINAL_ACCUMULATION = 3;
 constexpr uint32_t NON_FINAL_ACCUMULATION = 2;
 constexpr uint64_t B8_MIN_STEP = 2UL;
 
+// Event identifiers used by the copy/compute pipeline.
 constexpr uint16_t ZERO_FLAG = 0;
 constexpr uint16_t FIRST_FLAG = 1;
 constexpr uint16_t SCALE_BUFFER_FLAG_0 = 4;
 constexpr uint16_t SCALE_BUFFER_FLAG_1 = 5;
 constexpr uint8_t MTE1_MTE2_EVENT_ID_NUM = 6;
 
+// Shared MXFP constants for the device-side kernel, block, tile, and utility
+// helpers. Host tiling keeps its own prefixed names to avoid collisions when
+// both header groups are included in the same translation unit.
 constexpr int32_t MXFP_DIVISOR_SIZE = 64;
 constexpr int32_t MXFP_MULTI_BASE_SIZE = 2;
-constexpr static uint64_t NONE_FULL_LOAD_MODE = 0UL;
-constexpr static uint64_t A_FULL_LOAD_MODE = 1UL;
 constexpr int64_t DOUBLE_BUFFER_COUNT = 2LL;
+constexpr uint64_t DISABLE_A_FULL_LOAD = 0UL;
+constexpr uint64_t ENABLE_A_FULL_LOAD = 1UL;
 
 #endif

@@ -16,7 +16,6 @@
 #ifndef UTILS_COMMON_UTILS_H
 #define UTILS_COMMON_UTILS_H
 
-#include "integral_constant.h"
 #if ASC_DEVKIT_MAJOR >= 9
 #include "kernel_basic_intf.h"
 #include "std/algorithm.h"
@@ -25,7 +24,9 @@
 #endif
 #include "lib/matmul_intf.h"
 
-// buffer size
+#include "integral_constant.h"
+
+// On-chip buffer capacities used by the kernel helper code.
 constexpr static int64_t L0A_SIZE = 64 * 1024;
 constexpr static int64_t L0B_SIZE = 64 * 1024;
 constexpr static int64_t L0C_SIZE = 256 * 1024;
@@ -72,8 +73,7 @@ __host_aicore__ inline int64_t CeilDiv(int64_t a, int64_t b)
         return a; 
     } 
     return (a + b - 1) / b; 
-} 
-
+}
 
 __host_aicore__ inline int64_t CeilAlign(int64_t a, int64_t b) 
 { 
@@ -82,6 +82,7 @@ __host_aicore__ inline int64_t CeilAlign(int64_t a, int64_t b)
     } 
     return (a + b - 1) / b * b; 
 }
+
 __aicore__ inline uint64_t Align(uint64_t a, uint64_t b)
 {
     if (b == 0) {

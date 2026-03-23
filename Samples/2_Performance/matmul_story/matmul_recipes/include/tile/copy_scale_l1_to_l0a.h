@@ -10,7 +10,7 @@
 
 /*!
  * \file copy_scale_l1_to_l0a.h
- * \brief
+ * \brief Tile helper that copies MXFP4 scaleA data from L1 to L0A.
  */
 
 #ifndef MATMUL_TILE_DATAMOVE_COPY_L1_TO_L0A_H
@@ -19,7 +19,7 @@
 #include "impl/atom/cube_datamove/copy_l12l0.h"
 #include "kernel_utils/common_utils.h"
 
-namespace Cmct::Gemm::Tile {
+namespace Tile {
 struct CopyL12L0MxScaleA3510 {
     template <typename Tp, const Tp& traits, typename T, typename U, class Coord>
     __aicore__ inline static void Copy(const T& dst, const U& src, const Coord& coord)
@@ -30,6 +30,9 @@ struct CopyL12L0MxScaleA3510 {
             AscendC::Std::is_one_of_v<
                 AscendC::Std::tuple<dstType, srcType>, AscendC::Std::tuple<__ca__ fp8_e8m0_t, __cbuf__ fp8_e8m0_t>>,
             "The data type is not supported.");
+        // `coord` is expressed in the original M/K element space; the helper
+        // converts it to the packed MX scale coordinates expected by the L0A
+        // scale layout and issues one hardware MX load.
         // (m1, k/64, m0, 2)
         // shape ((m0, m1), (2, k/64))
         // stride ((2, k/64*m0*2), (1, m0*2))
@@ -40,6 +43,7 @@ struct CopyL12L0MxScaleA3510 {
         auto kStep = AscendC::Std::get<1>(AscendC::Std::get<1>(dst.Layout().Shape()));
         auto srcStride = AscendC::Std::get<1>(AscendC::Std::get<0>(src.Layout().Stride())) >> 5;
         auto dstStride = kStep;
+        // The intrinsic takes a 16-byte unit address, hence the right shift.
         uint64_t mxDstAddr = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(dst.Data().Get())) >> 4;
         load_cbuf_to_ca_mx(
             mxDstAddr, static_cast<__cbuf__ void*>(src.Data().Get()), mStartPosition, kStartPosition, mStep, kStep,
@@ -47,13 +51,13 @@ struct CopyL12L0MxScaleA3510 {
     }
 };
 
-// The with method returns the constructor of the trait.
-} // namespace Cmct::Gemm::Tile
+// Expose this helper through TE's generic copy-trait interface.
+} // namespace Tile
 
 template <>
-struct AscendC::Te::CopyTraits<Cmct::Gemm::Tile::CopyL12L0MxScaleA3510>
+struct AscendC::Te::CopyTraits<::Tile::CopyL12L0MxScaleA3510>
     : public CopyTraits<
-        Cmct::Gemm::Tile::CopyL12L0MxScaleA3510, LoadDataTraitDefault, Cmct::Gemm::Tile::CopyL12L0MxScaleA3510,
+        ::Tile::CopyL12L0MxScaleA3510, LoadDataTraitDefault, ::Tile::CopyL12L0MxScaleA3510,
         LoadDataTraitDefault> {};
 
 #endif

@@ -10,13 +10,13 @@
 
 /*!
  * \file tile_mmad_mx.h
- * \brief
+ * \brief Tile-level MMAD traits used by the SWAT MXFP4 kernels.
  */
 
 #ifndef MATMUL_COMMON_CMCT_TILE_COMPUTE_H
 #define MATMUL_COMMON_CMCT_TILE_COMPUTE_H
 #include "impl/atom/cube_compute/mmad.h"
-namespace Cmct::Gemm::Tile {
+namespace Tile {
 
 struct MmadMx {
     template <typename Tp, const Tp& traits, typename T, typename U, typename S>
@@ -24,6 +24,8 @@ struct MmadMx {
         const T& dst, const U& fm, const S& filter, uint16_t m, uint16_t k, uint16_t n, uint8_t unitFlagCtrl,
         bool btBuffCtrl, bool initCMatrixCtrl)
     {
+        // Forward the generic TE MMAD request to the MX-specific hardware
+        // intrinsic used by quantized MXFP4 matmul.
         mad_mx(
             dst.Data().Get(), fm.Data().Get(), filter.Data().Get(), m, k, n, unitFlagCtrl, true, btBuffCtrl,
             initCMatrixCtrl);
@@ -37,6 +39,8 @@ struct MmadMxWithBias {
         uint8_t unitFlagCtrl, bool btBuffCtrl, bool initCMatrixCtrl)
     {
         using dstType = typename T::elementType;
+        // The bias-enabled intrinsic encodes the destination and bias base
+        // addresses into one composite register-sized argument.
         uint64_t biasAddr = reinterpret_cast<uint64_t>(bias.Data().Get());
         uint64_t cAddr = reinterpret_cast<uint64_t>(dst.Data().Get());
         uint64_t xd = (cAddr) & 0xffffffffULL | ((biasAddr & 0xffffffffULL) << 32);
@@ -45,7 +49,7 @@ struct MmadMxWithBias {
             initCMatrixCtrl);
     }
 };
-} // namespace Cmct::Gemm::Tile
+} // namespace Tile
 
 namespace AscendC {
 namespace Te {
@@ -57,6 +61,8 @@ struct MmadTraits<Opration, TraitStruct> {
     template <const TraitType& trait = defaultTrait, typename... Args>
     __aicore__ inline void MmadUnpack(const Args&... args) const
     {
+        // Store the scalar MMAD parameters in the trait object once, then
+        // append them automatically to every unpacked operator invocation.
         Opration::template Mad<TraitType, trait, Args...>(args..., m, k, n, unitFlagCtrl, btBuffCtrl, initCMatrixCtrl);
     }
 
@@ -69,13 +75,13 @@ struct MmadTraits<Opration, TraitStruct> {
 };
 
 template <>
-struct MmadTraits<Cmct::Gemm::Tile::MmadMx>
-    : public MmadTraits<Cmct::Gemm::Tile::MmadMx, MmadTraitDefault, Cmct::Gemm::Tile::MmadMx, MmadTraitDefault> {};
+struct MmadTraits<::Tile::MmadMx>
+    : public MmadTraits<::Tile::MmadMx, MmadTraitDefault, ::Tile::MmadMx, MmadTraitDefault> {};
 
 template <>
-struct MmadTraits<Cmct::Gemm::Tile::MmadMxWithBias>
+struct MmadTraits<::Tile::MmadMxWithBias>
     : public MmadTraits<
-        Cmct::Gemm::Tile::MmadMxWithBias, MmadTraitDefault, Cmct::Gemm::Tile::MmadMxWithBias, MmadTraitDefault> {};
+        ::Tile::MmadMxWithBias, MmadTraitDefault, ::Tile::MmadMxWithBias, MmadTraitDefault> {};
 
 } // namespace Te
 } // namespace AscendC

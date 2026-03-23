@@ -9,8 +9,8 @@
  */
 
 /*!
- * \file quant_matmul_mxfp4_swat.cpp
- * \brief Sample launcher for the MXFP4 SWAT streaming example.
+ * \file quant_matmul_mxfp4_a_full_load.cpp
+ * \brief Sample launcher for the MXFP4 SWAT A-full-load example.
  */
 
 #include <cstdint>
@@ -30,11 +30,11 @@
 #include "block/block_scheduler_policy.h"
 #include "host_utils/common_utils.h"
 #include "host_utils/io_utils.h"
-#include "kernel/quant_matmul_mxfp4_kernel_swat.h"
-#include "tiling/quant_matmul_mxfp4_tiling_swat.h"
+#include "kernel/quant_matmul_mxfp4_kernel_a_full_load.h"
+#include "tiling/quant_matmul_mxfp4_tiling_a_full_load.h"
 #include "tiling/quant_matmul_tiling_data.h"
 
-__global__ __aicore__ void QuantMatmulMxfp4SwatKernel(
+__global__ __aicore__ void QuantMatmulMxfp4AFullLoadKernel(
     GM_ADDR dA, GM_ADDR dB, GM_ADDR dScaleA, GM_ADDR dScaleB, GM_ADDR dC,
     const QuantMatmulTilingData quantMatmulTilingData)
 {
@@ -52,14 +52,14 @@ __global__ __aicore__ void QuantMatmulMxfp4SwatKernel(
     using L1TileShape = AscendC::Shape<_0, _0, _0>;
     using L0TileShape = AscendC::Shape<_0, _0, _0>;
 
-    using BlockScheduler = QuantMatmulMxSwatScheduler<SWAT_NO_FULL_LOAD_MODE>;
+    using BlockScheduler = QuantMatmulMxSwatScheduler<SWAT_A_FULL_LOAD_MODE>;
     using DispatchPolicy =
-        QuantMatmulMxMultiBlockWithSwat<AscendC::Shape<_0, _0, _0, _0>, SWAT_NO_FULL_LOAD_MODE>;
-    using BlockMmad = Block::BlockMmadMxSwat<
+        QuantMatmulMxMultiBlockWithSwat<AscendC::Shape<_0, _0, _0, _0>, SWAT_A_FULL_LOAD_MODE>;
+    using BlockMmad = Block::BlockMmadMxAFullLoad<
         DispatchPolicy, L1TileShape, L0TileShape, AType, layoutA, BType, layoutB, CType, layoutC>;
     using ProblemShape = MatmulShape;
     using QuantMatmulKernelImpl =
-        Kernel::QuantMatmulMxKernelSwat<ProblemShape, BlockMmad, BlockScheduler>;
+        Kernel::QuantMatmulMxKernelAFullLoad<ProblemShape, BlockMmad, BlockScheduler>;
 
     using Params = typename QuantMatmulKernelImpl::Params;
     using QBMMTiling = typename QuantMatmulKernelImpl::QBMMTiling;
@@ -145,7 +145,7 @@ int main(int argc, char* argv[])
     QuantMatmulTilingData tilingData;
     // Host tiling picks the block shape, tail strategy, and buffering plan
     // that will later be consumed by the device kernel.
-    std::unique_ptr<QuantMatmulTilingBase> tilingEngine = std::make_unique<QuantMatmulTilingSwat>();
+    std::unique_ptr<QuantMatmulTilingBase> tilingEngine = std::make_unique<QuantMatmulTilingAFullLoad>();
     tilingEngine->GetTilingData(m, n, k, tilingData);
 
     constexpr int32_t deviceId = 0;
@@ -186,7 +186,7 @@ int main(int argc, char* argv[])
         CHECK_COND(aclrtSetDevice(deviceId) == ACL_SUCCESS, "Failed to set the ACL device.");
         deviceSet = true;
         CHECK_COND(aclrtCreateStream(&stream) == ACL_SUCCESS, "Failed to create the ACL stream.");
-
+        
         size_t sizeA = ((m * k) >> 1) * sizeof(uint8_t);
         size_t sizeB = ((k * n) >> 1) * sizeof(uint8_t);
         size_t sizeScaleA = (m * CeilDiv(k, TILING_MXFP_DIVISOR_SIZE) * TILING_MXFP_MULTI_BASE_SIZE) * sizeof(uint8_t);
@@ -286,7 +286,7 @@ int main(int argc, char* argv[])
 
         // Launch exactly the number of cores requested by the tiling result so
         // scheduler-side load balancing and runtime launch geometry match.
-        QuantMatmulMxfp4SwatKernel<<<tilingData.usedCoreNum, nullptr, stream>>>(
+        QuantMatmulMxfp4AFullLoadKernel<<<tilingData.usedCoreNum, nullptr, stream>>>(
             dA, dB, dScaleA, dScaleB, dC, tilingData);
         CHECK_COND(
             aclrtRecordEvent(kernelEndEvent, stream) == ACL_SUCCESS,

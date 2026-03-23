@@ -16,11 +16,12 @@
 #ifndef UTILS_LAYOUT_UTILS_H
 #define UTILS_LAYOUT_UTILS_H
 
-// dependency of matmul_utils.h
-#include "matmul/tiling.h"
-// CubeFormat
+// Cube format definitions.
 #include "matmul/matmul_config.h"
-// AscendC::CeilAlign
+// Required by matmul_utils.h.
+#include "matmul/tiling.h"
+
+// Provides AscendC::CeilAlign.
 #include "../../impl/adv_api/detail/matmul/utils/matmul_utils.h"
 #include "./integral_constant.h"
 
@@ -29,7 +30,7 @@ struct RowMajor {};
 struct ColumnMajor {};
 } // namespace layout
 
-// TagToFormat
+// Map layout tags to CubeFormat values.
 template <typename T>
 struct TagToFormat {
     static_assert(AscendC::Std::always_false_v<T>, "TagToFormat is not implemented for this layout");
@@ -47,7 +48,7 @@ struct TagToFormat<layout::ColumnMajor> {
     static constexpr CubeFormat format = CubeFormat::ND;
 };
 
-// TagToTrans
+// Map layout tags to transpose flags.
 template <typename T>
 struct TagToTrans {
     static_assert(AscendC::Std::always_false_v<T>, "TagToTrans is not implemented for this layout");
