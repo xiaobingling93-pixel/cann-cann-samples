@@ -9,21 +9,34 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------
 
-add_executable(matmul main.cpp)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(CMAKE_C_COMPILER ${BISHENG})
+set(CMAKE_CXX_COMPILER ${BISHENG})
+set(CMAKE_LINKER ${BISHENG})
 
-target_include_directories(matmul PRIVATE ${ASCEND_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/tensor_api)
-target_compile_options(matmul PRIVATE
+# n_buffer
+add_executable(n_buffer main.cpp)
+target_include_directories(n_buffer PRIVATE ${ASCEND_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/tensor_api)
+target_link_directories(n_buffer PRIVATE ${ASCEND_DIR}/lib64)
+target_compile_options(n_buffer PRIVATE
     "-xasc"
     "--npu-arch=dav-3510"
     "-w"
     "-O3"
 )
-
-target_link_libraries(matmul
+target_link_libraries(n_buffer
     PRIVATE
-    cann_samples::ascend_base
+    m
+    dl
+    platform
+    tiling_api
+    ascendcl
+    runtime
+    stdc++
 )
-
-install(TARGETS matmul
-    RUNTIME DESTINATION 0_Introduction/matmul
+install(TARGETS n_buffer
+    RUNTIME DESTINATION 1_Features/instruction_optimization/n_buffer
 )
