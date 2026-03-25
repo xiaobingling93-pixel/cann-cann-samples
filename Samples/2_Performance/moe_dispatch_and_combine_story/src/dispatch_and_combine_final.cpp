@@ -15,6 +15,8 @@
 #include <iostream>
 #include <cstdlib>
 #include <memory>
+#include <unistd.h>
+#include <sys/wait.h>
 
 #include "acl/acl.h"
 #include "tiling/platform/platform_ascendc.h"
@@ -72,9 +74,9 @@ void SetCombineTilingData(MoeDistributeCombineShmemTilingData& combineTilingData
 {
     combineTilingData.epWorldSize = epWorldSize;
     combineTilingData.epRankId = epRankId;
-    combineTilingData.moeExpertPerRankNum = 4;  // doubt
+    combineTilingData.moeExpertPerRankNum = 4;
     combineTilingData.moeExpertNum = epWorldSize * combineTilingData.moeExpertPerRankNum;
-    combineTilingData.globalBs = bs * epWorldSize;  // doubt
+    combineTilingData.globalBs = bs * epWorldSize;
     combineTilingData.bs = bs;
     combineTilingData.k = 8;
     combineTilingData.h = 7168;
@@ -117,15 +119,7 @@ std::string GetOuputFilePath(std::string tensorName, int rankId)
     return "./output/chip_" + rankIdStr + "/" + tensorName + "_" + rankIdStr + ".bin";
 }
 
-aclshmemx_uniqueid_t defaultFlagUid;
-
-int main(int argc, char* argv[])
-{
-    int status = ACLSHMEM_SUCCESS;
-    int rankNum = atoi(argv[1]);
-    int rankId = atoi(argv[2]);
-    int bs = atoi(argv[3]);
-
+int runDispatchAndCombine(int rankNum, int rankId, int bs) {
     const char *ipport = "tcp://127.0.0.1:8998";
     INFO_LOG("rankNum=%d, rankId=%d, ipport=%s", rankNum, rankId, ipport);
 
@@ -139,6 +133,7 @@ int main(int argc, char* argv[])
     // shmem init
     uint64_t localMemSize = SHMEM_SPACE_SIZE;
     aclshmemx_init_attr_t attributes;
+    aclshmemx_uniqueid_t defaultFlagUid;
     test_set_attr(rankId, rankNum, localMemSize, ipport, defaultFlagUid, &attributes);
     ACL_CHECK_WITH_RET(aclshmemx_init_attr(ACLSHMEMX_INIT_WITH_DEFAULT, &attributes),
         ERROR_LOG("aclshmemx_init_attr failed"), return -1);
@@ -265,4 +260,45 @@ int main(int argc, char* argv[])
 
     std::cout << "[SUCCESS] demo run success in relative_pe_id " << rankId << std::endl;
     return 0;
+}
+
+int main(int argc, char* argv[])
+{
+    int rankNum = atoi(argv[1]);
+    int bs = atoi(argv[2]);
+
+    INFO_LOG("Master (PID=%d) will fork %d processes", getpid(), rankNum);
+
+    pid_t pids[rankNum];
+    for (int rankId = 0; rankId < rankNum; ++rankId) {
+        pid_t pid = fork();
+
+        if (pid < 0) {
+            ERROR_LOG("Fork failed for rank %d", rankId);
+            exit(-1);
+        } else if (pid == 0) {
+            // [Child Process] Execute kernels on the device corresponding to this rankId
+            int ret = runDispatchAndCombine(rankNum, rankId, bs);
+            exit(ret); // exit after work finished, no need to get back to main
+        } else {
+            // [Parent Process] Record the PID of each spawned child
+            pids[rankId] = pid;
+            INFO_LOG("Forked Rank %d -> PID %d", rankId, pid);
+        }
+    }
+
+    // Wait for all processes to finish (i.e., ensure every chip completes the operator execution)
+    int status;
+    bool all_success = true;
+    for (int rankId = 0; rankId < rankNum; ++rankId) {
+        pid_t pid = pids[rankId];
+        waitpid(pid, &status, 0);
+        if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+            all_success = false;
+            ERROR_LOG("Worker PID %d failed", pid);
+        }
+    }
+
+    std::cout << "All workers finished. Status: " << (all_success ? "SUCCESS" : "FAILURE") << std::endl;
+    return all_success ? 0 : -1;
 }

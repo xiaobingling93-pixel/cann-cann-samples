@@ -26,47 +26,46 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 
-CASES_DIR = Path("cases")
+OP_EXE_DIR = Path('.').resolve()
 INPUT_DIR = "input"
+GOLDEN_DIR = "golden"
 OUTPUT_DIR = "output"
-DEFAULT_CASE_DIR = "dispatch_combine_story"
 
 
-class TensorCategory(Enum):
-    DISPATCH_INPUTS = "dispatch_inputs"
-    DISPATCH_OUTPUTS = "dispatch_outputs"
-    COMBINE_INPUTS = "combine_inputs"
-    COMBINE_OUTPUTS = "combine_outputs"
+class IOCategory(Enum):
+    INPUTS = "inputs"
+    OUTPUTS = "outputs"
 
 
-def remove_previous_case(case_name: str) -> None:
-    case_dir = CASES_DIR / case_name
-    if case_dir.exists():
-        shutil.rmtree(case_dir)
+def remove_previous_case() -> None:
+    for io_dir in [INPUT_DIR, GOLDEN_DIR, OUTPUT_DIR]:
+        op_io_dir = OP_EXE_DIR / io_dir
+        if op_io_dir.exists():
+            shutil.rmtree(op_io_dir)
 
 
-def _resolve_tensor_dir(case_name: str, chip_id: int, category: TensorCategory) -> Path:
-    if category in (TensorCategory.DISPATCH_INPUTS, TensorCategory.DISPATCH_OUTPUTS):
-        op_dir = "dispatch"
-    else:
-        op_dir = "combine"
+def gen_output_dir(world_size: int) -> None:
+    for chip_id in range(world_size):
+        output_dir = OP_EXE_DIR / OUTPUT_DIR / f'chip_{chip_id}'
+        output_dir.mkdir(parents=True, exist_ok=True)
 
+
+def _resolve_tensor_dir(chip_id: int, category: IOCategory) -> Path:
     io_dir = (
         INPUT_DIR
-        if category in (TensorCategory.DISPATCH_INPUTS, TensorCategory.COMBINE_INPUTS)
-        else OUTPUT_DIR
+        if category == IOCategory.INPUTS
+        else GOLDEN_DIR
     )
-    return CASES_DIR / case_name / op_dir / io_dir / f"chip_{chip_id}"
+    return OP_EXE_DIR / io_dir / f"chip_{chip_id}"
 
 
 def save_tensor_to_bin(
     tensor: torch.Tensor,
     tensor_name: str,
     chip_id: int,
-    category: TensorCategory,
-    case_name: str,
+    category: IOCategory,
 ) -> None:
-    out_dir = _resolve_tensor_dir(case_name, chip_id, category)
+    out_dir = _resolve_tensor_dir(chip_id, category)
     out_dir.mkdir(parents=True, exist_ok=True)
     raw = tensor.detach().cpu().contiguous().view(torch.int8).numpy()
     raw.tofile(out_dir / f"{tensor_name}_{chip_id}.bin")
@@ -283,15 +282,15 @@ def gen_dispatch_input_bin_file(
     tokens_per_chip: list[torch.Tensor],
     dst_expert_indices_per_chip: list[torch.Tensor],
     world_size: int,
-    saver: Callable[[torch.Tensor, str, int, TensorCategory], None],
+    saver: Callable[[torch.Tensor, str, int, IOCategory], None],
 ) -> None:
     for chip_id in range(world_size):
-        saver(tokens_per_chip[chip_id], "x", chip_id, TensorCategory.DISPATCH_INPUTS)
+        saver(tokens_per_chip[chip_id], "x", chip_id, IOCategory.INPUTS)
         saver(
             dst_expert_indices_per_chip[chip_id],
             "expert_ids",
             chip_id,
-            TensorCategory.DISPATCH_INPUTS,
+            IOCategory.INPUTS,
         )
 
 
@@ -303,107 +302,75 @@ def gen_dispatch_output_bin_file(
     recv_info_per_expert: list[torch.Tensor],
     world_size: int,
     do_quant: bool,
-    saver: Callable[[torch.Tensor, str, int, TensorCategory], None],
+    saver: Callable[[torch.Tensor, str, int, IOCategory], None],
 ) -> None:
     for chip_id in range(world_size):
-        saver(recv_tokens[chip_id], "expand_x", chip_id, TensorCategory.DISPATCH_OUTPUTS)
+        saver(recv_tokens[chip_id], "expand_x", chip_id, IOCategory.OUTPUTS)
         if do_quant:
             saver(
                 recv_dynamics_scales[chip_id],
                 "dynamic_scales",
                 chip_id,
-                TensorCategory.DISPATCH_OUTPUTS,
+                IOCategory.OUTPUTS,
             )
         saver(
             recv_src_info[chip_id],
             "assist_info_for_combine",
             chip_id,
-            TensorCategory.DISPATCH_OUTPUTS,
+            IOCategory.OUTPUTS,
         )
         saver(
             recv_info_per_expert[chip_id],
             "expert_token_nums",
             chip_id,
-            TensorCategory.DISPATCH_OUTPUTS,
+            IOCategory.OUTPUTS,
         )
         saver(
             recv_prefix_count[chip_id],
             "ep_recv_count",
             chip_id,
-            TensorCategory.DISPATCH_OUTPUTS,
+            IOCategory.OUTPUTS,
         )
 
 
 def gen_combine_input_bin_file(
     recv_tokens: list[torch.Tensor],
-    dst_expert_indices_per_chip: list[torch.Tensor],
-    recv_src_info: list[torch.Tensor],
-    recv_prefix_count: list[torch.Tensor],
     topk_weights_per_chip: list[torch.Tensor],
     h: int,
     world_size: int,
-    a_shared: int,
     a_moe: int,
-    shared_expert_rank_num: int,
-    saver: Callable[[torch.Tensor, str, int, TensorCategory], None],
+    saver: Callable[[torch.Tensor, str, int, IOCategory], None],
 ) -> None:
     def pad_expand_x(expand_x: torch.Tensor, ep_id: int) -> torch.Tensor:
-        target_rows = a_shared if ep_id < shared_expert_rank_num else a_moe
+        target_rows = a_moe
         pad_rows = target_rows - expand_x.size(0)
         if pad_rows <= 0:
             return expand_x
         padding = torch.zeros((pad_rows, h), dtype=expand_x.dtype)
         return torch.cat([expand_x, padding], dim=0)
 
-    def pad_expand_idx(expand_idx: torch.Tensor, ep_id: int) -> torch.Tensor:
-        target_rows = a_shared if ep_id < shared_expert_rank_num else a_moe
-        target_size = target_rows * 128
-        pad_size = target_size - expand_idx.numel()
-        if pad_size <= 0:
-            return expand_idx
-        padding = torch.zeros((pad_size,), dtype=expand_idx.dtype)
-        return torch.cat([expand_idx, padding], dim=0)
-
     for chip_id in range(world_size):
         saver(
             pad_expand_x(recv_tokens[chip_id], chip_id),
             "expand_x",
             chip_id,
-            TensorCategory.COMBINE_INPUTS,
-        )
-        saver(
-            pad_expand_idx(recv_src_info[chip_id].flatten(), chip_id),
-            "assist_info_for_combine",
-            chip_id,
-            TensorCategory.COMBINE_INPUTS,
-        )
-        saver(
-            dst_expert_indices_per_chip[chip_id],
-            "expert_ids",
-            chip_id,
-            TensorCategory.COMBINE_INPUTS,
-        )
-        saver(
-            recv_prefix_count[chip_id],
-            "ep_send_count",
-            chip_id,
-            TensorCategory.COMBINE_INPUTS,
+            IOCategory.INPUTS,
         )
         saver(
             topk_weights_per_chip[chip_id],
             "expert_scales",
             chip_id,
-            TensorCategory.COMBINE_INPUTS,
+            IOCategory.INPUTS,
         )
 
 
 def gen_combine_output_bin_file(
     tokens_per_chip: list[torch.Tensor],
     world_size: int,
-    saver: Callable[[torch.Tensor, str, int, TensorCategory], None],
+    saver: Callable[[torch.Tensor, str, int, IOCategory], None],
 ) -> None:
     for chip_id in range(world_size):
-        saver(tokens_per_chip[chip_id], "x", chip_id, TensorCategory.COMBINE_OUTPUTS)
+        saver(tokens_per_chip[chip_id], "x", chip_id, IOCategory.OUTPUTS)
 
 
 def gen_tokens_per_chip(
@@ -637,7 +604,6 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate dispatch/combine test cases"
     )
-    parser.add_argument("--case-name", type=str, default=DEFAULT_CASE_DIR)
     parser.add_argument("--random-seed", type=int, default=0)
     parser.add_argument("--chip-num-per-server", type=int, default=2)
     parser.add_argument("--moe-expert-num", type=int, default=None)
@@ -665,7 +631,6 @@ def _spawn_distributed(
 def main() -> None:
     args = parse_args()
 
-    case_name = args.case_name
     random_seed = args.random_seed
     quant_mode = args.quant_mode
     expert_recv_info_type = args.expert_recv_info_type
@@ -696,19 +661,17 @@ def main() -> None:
         if rank_num_per_shared_expert > 0
         else 0
     )
-    a_shared = bs * max_shared_group_num
     a_moe = global_bs * min(local_moe_expert_num, k)
 
     token_dtype = torch.bfloat16 if args.token_dtype_choice == 0 else torch.float16
 
-    print(f"{case_name=}")
     print(f"{random_seed=}")
     print(f"{chip_num_per_server=}")
     print(f"{moe_expert_num=}")
     print(f"{bs=}")
     print(f"{h=}")
     print(f"{k=}")
-    print(f"{args.token_dtype_choice=}")
+    print(f"{token_dtype=}")
     print(f"{quant_mode=}")
     print(f"{expert_recv_info_type=}")
 
@@ -765,13 +728,13 @@ def main() -> None:
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
-    remove_previous_case(case_name)
+    remove_previous_case()
+    gen_output_dir(world_size)
     saver = lambda tensor, tensor_name, chip_id, category: save_tensor_to_bin(
         tensor=tensor,
         tensor_name=tensor_name,
         chip_id=chip_id,
         category=category,
-        case_name=case_name,
     )
 
     gen_dispatch_input_bin_file(
@@ -792,15 +755,10 @@ def main() -> None:
     )
     gen_combine_input_bin_file(
         [item[0] for item in combine_inputs],
-        dst_expert_indices_per_chip,
-        [item[2] for item in combine_inputs],
-        [item[3] for item in combine_inputs],
         topk_weights_per_chip,
         h,
         world_size,
-        a_shared,
         a_moe,
-        shared_expert_rank_num,
         saver,
     )
     gen_combine_output_bin_file(
@@ -811,6 +769,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    print("终不似，少年游")
     mp.set_start_method("spawn", force=True)
     main()

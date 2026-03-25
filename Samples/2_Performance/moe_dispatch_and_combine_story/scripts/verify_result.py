@@ -16,11 +16,11 @@ from pathlib import Path
 from pprint import pprint
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--golden-dir", default='dispatch/output', type=str, help="golden bin directory")
-parser.add_argument("--op-out-dir", default='output', type=str, help="op output directory")
+parser.add_argument("--golden-dir", default='./golden', type=str, help="golden bin directory")
+parser.add_argument("--op-out-dir", default='./output', type=str, help="op output directory")
 args = parser.parse_args()
 
-golden_dir, op_out_dir = Path(args.golden_dir), Path(args.op_out_dir)
+golden_dir, op_out_dir = Path(args.golden_dir).resolve(), Path(args.op_out_dir).resolve()
 
 accuracy_result = {}
 for golden_bin in golden_dir.rglob("*.bin"):
