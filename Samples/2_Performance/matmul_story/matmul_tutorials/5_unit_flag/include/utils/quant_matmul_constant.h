@@ -18,6 +18,7 @@ constexpr uint64_t IDX_X2SCALE_OFFSET = 3UL;
 constexpr uint64_t IDX_C_OFFSET = 4UL;
 constexpr uint64_t IDX_M_TILEIDX = 0UL;
 constexpr uint64_t IDX_N_TILEIDX = 1UL;
+/** BlockShape [2],[3]: sub-tile origin offsets along M/N when the tail block is split. */
 constexpr uint64_t IDX_M_TAIL_SPLIT_TILEIDX = 2UL;
 constexpr uint64_t IDX_N_TAIL_SPLIT_TILEIDX = 3UL;
  
@@ -25,6 +26,7 @@ constexpr uint64_t IDX_M_IDX = 0UL;
 constexpr uint64_t IDX_N_IDX = 1UL;
 constexpr uint64_t IDX_K_IDX = 2UL;
 
+/** MMAD / fixpipe: last K slice uses FINAL; earlier slices use NON_FINAL (AscendC convention). */
 constexpr uint32_t FINAL_ACCUMULATION = 3;
 constexpr uint32_t NON_FINAL_ACCUMULATION = 2;
 constexpr uint64_t B8_MIN_STEP = 2UL;

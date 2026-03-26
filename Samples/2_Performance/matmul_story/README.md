@@ -15,7 +15,11 @@ matmul_story/
 │       │   └── README.md                       # 示例说明文档
 │       ├── ...                                 # 其他算子示例
 │       └── matmul_a16w16/                      # A16W16 非量化矩阵乘示例
-└── matmul_tutorials/                           # 分步教程
+└── matmul_tutorials/                           # 分步教程（细目见 matmul_tutorials/README.md）
+    ├── 0_naive/                                # Step 0 基准
+    ├── 3_block_swat/                           # Step 3 SWAT
+    ├── 4_last_round_tile_balance/              # Step 4 尾轮负载均衡
+    └── 5_unit_flag/                            # Step 5 UnitFlag
 ```
 
 ## 概述
@@ -33,4 +37,4 @@ matmul_story/
 
 ## 分步教程
 
-待补充
+各 Step 说明、Case 与流水图见 [matmul_tutorials/README.md](./matmul_tutorials/README.md)；目录树见上文 `matmul_tutorials/`。

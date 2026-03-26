@@ -27,14 +27,16 @@
 #include "tiling/platform/platform_ascendc.h"
 #include <cstdlib>
 #include "../../common/host_utils/io_utils.h"
-#include "include/block/block_mmad_mx_base.h"
-#include "include/block/block_scheduler_mx_base.h"
-#include "include/kernel/quant_matmul_mx_kernel_impl_base.h"
+#include "include/block/block_mmad_mx_swat.h"
+#include "include/block/block_scheduler_mx_swat.h"
+#include "include/kernel/quant_matmul_mx_kernel_swat.h"
 #include "include/utils/quant_matmul_constant.h"
 
 void printUsage(const std::string& programName)
 {
     std::cerr << "Usage: " << programName << " m k n" << std::endl;
+    std::cerr << "MXFP4 quant matmul tutorial - Step 5 (tail-round load balance + MMAD/fixpipe unitFlag)"
+              << std::endl;
     std::cerr << "Args: " << std::endl;
     std::cerr << "  m: row of matrix A" << std::endl;
     std::cerr << "  k: col of matrix A" << std::endl;
@@ -55,7 +57,7 @@ void parseArguments(int argc, char* argv[], int& m, int& k, int& n)
         m = std::stoi(argv[1]);
         k = std::stoi(argv[2]);
         n = std::stoi(argv[3]);
-    } catch (const std::invalid_argument&) {
+    } catch (const std::invalid_argument& e) {
         throw std::invalid_argument("ERROR: m k n must be Integer");
     }
 
@@ -71,7 +73,6 @@ void parseArguments(int argc, char* argv[], int& m, int& k, int& n)
         throw std::invalid_argument("ERROR: k should satisfy that CeilDiv(k, 32) is an even number");
     }
 }
-
 int main(int argc, char* argv[])
 {
     int m, k, n;
@@ -87,7 +88,6 @@ int main(int argc, char* argv[])
     aclrtStream stream;
     aclrtEvent kernelStartEvent = nullptr;
     aclrtEvent kernelEndEvent = nullptr;
-
     auto ret = aclInit(nullptr);
     CHECK_COND(ret == ACL_SUCCESS, "aclInit failed.");
     ret = aclrtSetDevice(deviceId);
@@ -105,7 +105,6 @@ int main(int argc, char* argv[])
     auto sizeScaleA = static_cast<size_t>(1) * hostScaleA.size() * sizeof(uint8_t);
     auto sizeScaleB = static_cast<size_t>(1) * hostScaleB.size() * sizeof(uint8_t);
     auto sizeOutput = static_cast<size_t>(1) * hostOutput.size() * sizeof(half);
-    // Resolve golden/input|output next to gen_data.py (readlink avoids std::filesystem for older GCC).
     char exePath[PATH_MAX];
     ssize_t len = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
     std::string baseDir = ".";
@@ -162,22 +161,19 @@ int main(int argc, char* argv[])
     auto ascendcPlatform = platform_ascendc::PlatformAscendCManager::GetInstance();
     CHECK_COND(ascendcPlatform != nullptr, "get ascendcPlatform failed.");
     uint32_t blockDim = ascendcPlatform->GetCoreNumAic();
-
     ret = aclrtCreateEvent(&kernelStartEvent);
     CHECK_COND(ret == ACL_SUCCESS, "Failed to create the start event for kernel timing.");
     ret = aclrtCreateEvent(&kernelEndEvent);
     CHECK_COND(ret == ACL_SUCCESS, "Failed to create the end event for kernel timing.");
     ret = aclrtRecordEvent(kernelStartEvent, stream);
     CHECK_COND(ret == ACL_SUCCESS, "Failed to record the start event for kernel timing.");
-    Kernel::QuantMatmulMxfp4BaseKernel<<<blockDim, nullptr, stream>>>(
+    Kernel::QuantMatmulMxfp4UnitFlagKernel<<<blockDim, nullptr, stream>>>(
         m, k, n, deviceA, deviceB, deviceScaleA, deviceScaleB, deviceOutput);
-
     ret = aclrtRecordEvent(kernelEndEvent, stream);
     CHECK_COND(ret == ACL_SUCCESS, "Failed to record the end event for kernel timing.");
 
     ret = aclrtSynchronizeStream(stream);
     CHECK_COND(ret == ACL_SUCCESS, "aclrtSynchronizeStream failed.");
-
     float kernelElapsedMs = 0.0F;
     ret = aclrtEventElapsedTime(&kernelElapsedMs, kernelStartEvent, kernelEndEvent);
     CHECK_COND(ret == ACL_SUCCESS, "Failed to query the kernel elapsed time.");
@@ -194,7 +190,7 @@ int main(int argc, char* argv[])
         return 1;
     }
     std::cout << std::fixed << std::setprecision(3)
-              << "Kernel elapsed time: " << kernelElapsedUs << " us" << std::endl;
+                  << "Kernel elapsed time: " << kernelElapsedUs << " us" << std::endl;
     std::cout << "Timing note: event-based timing may be skewed when the NPU is shared. "
                  "If the device is not exclusively owned, or the reported time is unstable, "
                  "use the `msprof` command for precise profiling."

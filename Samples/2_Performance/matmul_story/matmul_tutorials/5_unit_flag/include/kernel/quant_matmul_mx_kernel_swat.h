@@ -8,8 +8,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef QUANT_MATMUL_MX_KERNEL_Base_IMPL_H
-#define QUANT_MATMUL_MX_KERNEL_Base_IMPL_H
+#ifndef QUANT_MATMUL_MX_KERNEL_UNIT_FLAG_IMPL_H
+#define QUANT_MATMUL_MX_KERNEL_UNIT_FLAG_IMPL_H
 #if ASC_DEVKIT_MAJOR >= 9
 #include "kernel_basic_intf.h"
 #else
@@ -20,8 +20,9 @@
 #include "../../../../common/kernel_utils/layout_utils.h"
 #include "../../../../common/kernel_utils/tuple_utils.h"
 #include "include/tensor.h"
-#include "../block/block_scheduler_mx_base.h"
-#include "../block/block_mmad_mx_base.h"
+#include "../utils/quant_matmul_constant.h"
+#include "../block/block_scheduler_mx_swat.h"
+#include "../block/block_mmad_mx_swat.h"
 
 namespace Kernel {
 #define QBMM_MX_KERNEL_CLASS_TEM_PARAMS \
@@ -31,12 +32,15 @@ namespace Kernel {
 using namespace AscendC;
 
 QBMM_MX_KERNEL_CLASS_TEM_PARAMS
-class QuantMatmulMxKernelBaseImpl {
+class QuantMatmulMxKernelUnitFlagImpl {
 public:
-    __aicore__ inline QuantMatmulMxKernelBaseImpl()
+    __aicore__ inline QuantMatmulMxKernelUnitFlagImpl()
     {}
-    __aicore__ inline ~QuantMatmulMxKernelBaseImpl()
+    __aicore__ inline ~QuantMatmulMxKernelUnitFlagImpl()
     {}
+
+    static constexpr bool transA = BlockMmad::transA;
+    static constexpr bool transB = BlockMmad::transB;
 
     using BlockSchedulerOp = typename Block::BlockSchedulerSelector<ProblemShape, BlockScheduler>::SchedulerOp;
 
@@ -91,7 +95,7 @@ private:
 };
 
 QBMM_MX_KERNEL_CLASS_TEM_PARAMS
-__aicore__ inline void QuantMatmulMxKernelBaseImpl<QBMM_MX_KERNEL_FUN_TEM_PARAMS>::operator()(const Params& params)
+__aicore__ inline void QuantMatmulMxKernelUnitFlagImpl<QBMM_MX_KERNEL_FUN_TEM_PARAMS>::operator()(const Params& params)
 {
     if ASCEND_IS_AIV {
         return;
@@ -107,7 +111,7 @@ __aicore__ inline void QuantMatmulMxKernelBaseImpl<QBMM_MX_KERNEL_FUN_TEM_PARAMS
 }
 
 QBMM_MX_KERNEL_CLASS_TEM_PARAMS
-__aicore__ inline void QuantMatmulMxKernelBaseImpl<QBMM_MX_KERNEL_FUN_TEM_PARAMS>::ResetGmAddr(const Params& params)
+__aicore__ inline void QuantMatmulMxKernelUnitFlagImpl<QBMM_MX_KERNEL_FUN_TEM_PARAMS>::ResetGmAddr(const Params& params)
 {
     aGmAddr_ = reinterpret_cast<__gm__ AType*>(params.mmadParams.aGmAddr);
     bGmAddr_ = reinterpret_cast<__gm__ BType*>(params.mmadParams.bGmAddr);
@@ -117,7 +121,7 @@ __aicore__ inline void QuantMatmulMxKernelBaseImpl<QBMM_MX_KERNEL_FUN_TEM_PARAMS
 }
 
 QBMM_MX_KERNEL_CLASS_TEM_PARAMS
-__aicore__ inline void QuantMatmulMxKernelBaseImpl<QBMM_MX_KERNEL_FUN_TEM_PARAMS>::Process(
+__aicore__ inline void QuantMatmulMxKernelUnitFlagImpl<QBMM_MX_KERNEL_FUN_TEM_PARAMS>::Process(
     const Params& params, BlockSchedulerOp& bs)
 {
     auto layoutA = MakeLayoutA{}(params.problemShape.m, params.problemShape.k);
@@ -127,21 +131,21 @@ __aicore__ inline void QuantMatmulMxKernelBaseImpl<QBMM_MX_KERNEL_FUN_TEM_PARAMS
     auto layoutScaleB = MakeLayoutScaleB{}(
         CeilDiv(params.problemShape.k, MXFP_DIVISOR_SIZE) * MXFP_MULTI_BASE_SIZE, params.problemShape.n);
     auto layoutC = AscendC::Te::MakeNDLayout<CType>(params.problemShape.m, params.problemShape.n);
+
     auto gmA = AscendC::Te::MakeTensor(AscendC::Te::MakeGMmemPtr(aGmAddr_), layoutA);
     auto gmScaleA = AscendC::Te::MakeTensor(AscendC::Te::MakeGMmemPtr(scaleAGmAddr_), layoutScaleA);
     auto gmB = AscendC::Te::MakeTensor(AscendC::Te::MakeGMmemPtr(bGmAddr_), layoutB);
     auto gmScaleB = AscendC::Te::MakeTensor(AscendC::Te::MakeGMmemPtr(scaleBGmAddr_), layoutScaleB);
     auto gmC = AscendC::Te::MakeTensor(AscendC::Te::MakeGMmemPtr(cGmAddr_), layoutC);
-
     BlockCoord blockCoord;
     constexpr int64_t kPos = 0L;
     while (bs.GetTileIdx(blockCoord)) {
-        int64_t mPos = Get<MNK_M>(blockCoord);
-        int64_t nPos = Get<MNK_N>(blockCoord);
         BlockShape singleShape = bs.GetBlockShape(blockCoord);
         if (Get<MNK_M>(singleShape) <= 0 || Get<MNK_N>(singleShape) <= 0) {
             return;
         }
+        int64_t mPos = Get<MNK_M>(blockCoord) + Get<IDX_M_TAIL_SPLIT_TILEIDX>(singleShape);
+        int64_t nPos = Get<MNK_N>(blockCoord) + Get<IDX_N_TAIL_SPLIT_TILEIDX>(singleShape);
 
         auto gmBlockA = gmA(
             AscendC::Te::MakeCoord(mPos, kPos), AscendC::Te::MakeShape(Get<MNK_M>(singleShape), params.problemShape.k));
@@ -162,7 +166,7 @@ __aicore__ inline void QuantMatmulMxKernelBaseImpl<QBMM_MX_KERNEL_FUN_TEM_PARAMS
     }
 }
 
-__global__ __aicore__ void QuantMatmulMxfp4BaseKernel(uint64_t m, uint64_t k, uint64_t n,
+__global__ __aicore__ void QuantMatmulMxfp4UnitFlagKernel(uint64_t m, uint64_t k, uint64_t n,
         GM_ADDR aGM, GM_ADDR bGM, GM_ADDR aScaleGM, GM_ADDR bScaleGM, GM_ADDR cGM)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIC_ONLY);
@@ -170,15 +174,18 @@ __global__ __aicore__ void QuantMatmulMxfp4BaseKernel(uint64_t m, uint64_t k, ui
     using BType = fp4x2_e2m1_t;
     using CType = bfloat16_t;
 
-    using BlockScheduler = Block::QuantMatmulMxBaseScheduler;
+    using BlockScheduler = Block::QuantMatmulMxLastRoundTileBalanceScheduler;
     using BlockMmad = Block::BlockMmadMx<AType, BType, CType>;
     using ProblemShape = MatmulShape;
-    using QuantMatmulKernelImpl = Kernel::QuantMatmulMxKernelBaseImpl<ProblemShape, BlockMmad, BlockScheduler>;
+    using QuantMatmulKernelImpl = Kernel::QuantMatmulMxKernelUnitFlagImpl<ProblemShape, BlockMmad, BlockScheduler>;
     using Params = typename QuantMatmulKernelImpl::Params;
 
     constexpr uint32_t BASE_M = 256;
     constexpr uint32_t BASE_N = 256;
     constexpr uint32_t BASE_K = 256; // 128 / sizeof(fp4x2_e2m1_t)
+    constexpr uint32_t PINGPONG_NUM = 2;
+    constexpr uint32_t M_TAIL_TILE = 1;
+    constexpr uint32_t N_TAIL_TILE = 2;
 
     Params params;
     params.problemShape.m = static_cast<int64_t>(m);
@@ -189,8 +196,13 @@ __global__ __aicore__ void QuantMatmulMxfp4BaseKernel(uint64_t m, uint64_t k, ui
     params.mmadParams.scaleAGmAddr = aScaleGM;
     params.mmadParams.scaleBGmAddr = bScaleGM;
     params.mmadParams.cGmAddr = cGM;
+    params.l1Params.kL1 = BASE_K;
+    params.l1Params.scaleKL1 = BASE_K;
+    params.l1Params.l1BufNum = PINGPONG_NUM;
     params.schParams.baseM = BASE_M;
     params.schParams.baseN = BASE_N;
+    params.schParams.mTailTile = M_TAIL_TILE;
+    params.schParams.nTailTile = N_TAIL_TILE;
     params.qbmmParams.baseM = BASE_M;
     params.qbmmParams.baseN = BASE_N;
     params.qbmmParams.baseK = BASE_K;

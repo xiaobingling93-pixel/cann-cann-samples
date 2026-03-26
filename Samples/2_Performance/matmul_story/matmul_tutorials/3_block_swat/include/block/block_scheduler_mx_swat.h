@@ -8,8 +8,11 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef BLOCK_SCHEDULER_MX_BASE_H
-#define BLOCK_SCHEDULER_MX_BASE_H
+/*!
+ * \brief SWAT-style scheduler: M-row sliding window and zig-zag N order for better locality.
+ */
+#ifndef BLOCK_SCHEDULER_MX_SWAT_H
+#define BLOCK_SCHEDULER_MX_SWAT_H
 
 #if ASC_DEVKIT_MAJOR >= 9
 #include "kernel_basic_intf.h"
@@ -24,13 +27,10 @@ namespace Block {
 
 using namespace AscendC;
 
-struct QuantMatmulMxBaseScheduler {};
+struct QuantMatmulMxSwatScheduler {};
 
-/*!
- * \brief Column-major linear order of M–N plane tiles: tileIdx = nTileIdx * mCnt + mTileIdx.
- */
 template <class ProblemShape_>
-class BlockSchedulerColumnMajorMx {
+class BlockSchedulerRowSplitMx {
 public:
     int64_t m_{0};
     int64_t n_{0};
@@ -47,6 +47,11 @@ public:
     int64_t roundIdx_{0};
     int64_t round_{0};
     int64_t endBlockIdx_{0};
+    int64_t mCoreNum_{0};
+    int64_t mTailCoreNum_{0};
+    int64_t mainRow_{0};
+
+    static constexpr int64_t WINDOW_LEN = 4;
 
     using BlockShape = AscendC::Shape<int64_t, int64_t, int64_t, int64_t>;
     using BlockCoord = AscendC::Coord<int64_t, int64_t, int64_t, int64_t>;
@@ -58,7 +63,7 @@ public:
     };
 
 public:
-    __aicore__ inline BlockSchedulerColumnMajorMx(const ProblemShape& shape, const Params& params)
+    __aicore__ inline BlockSchedulerRowSplitMx(const ProblemShape& shape, const Params& params)
     {
         m_ = shape.m;
         n_ = shape.n;
@@ -75,6 +80,9 @@ public:
         blockNum_ = static_cast<int64_t>(AscendC::GetBlockNum());
         round_ = totalCnt_ > 0 ? CeilDiv(totalCnt_, blockNum_) : 0;
         endBlockIdx_ = totalCnt_ > 0 ? (totalCnt_ - 1) % blockNum_ : -1;
+        mCoreNum_ = (mCnt_ < WINDOW_LEN) ? mCnt_ : WINDOW_LEN;
+        mainRow_ = (mCoreNum_ > 0) ? (mCnt_ / mCoreNum_ - 1) : 0;
+        mTailCoreNum_ = (mCoreNum_ > 0) ? (mCnt_ - mCoreNum_ * mainRow_) : 0;
     }
 
     __aicore__ inline int64_t GetEndBlockIdx() const { return endBlockIdx_; }
@@ -97,21 +105,34 @@ public:
         if (tileIdx >= totalCnt_) {
             return false;
         }
-        int64_t mTileIdx = tileIdx % mCnt_;
-        int64_t nTileIdx = tileIdx / mCnt_;
-        Get<MNK_M>(blockCoord) = mTileIdx * baseM_;
-        Get<MNK_N>(blockCoord) = nTileIdx * baseN_;
-        Get<MNK_K>(blockCoord) = mTileIdx;
-        Get<MNK_B>(blockCoord) = nTileIdx;
+
+        int64_t rowIdx = (mCoreNum_ > 0) ? (tileIdx / (mCoreNum_ * nCnt_)) : 0;
+        if (rowIdx < mainRow_) {
+            int64_t localTileIdx = tileIdx - rowIdx * mCoreNum_ * nCnt_;
+            Get<MNK_K>(blockCoord) = rowIdx * mCoreNum_ + localTileIdx % mCoreNum_;
+            Get<MNK_B>(blockCoord) = (localTileIdx / mCoreNum_) % nCnt_;
+        } else {
+            rowIdx = mainRow_;
+            int64_t tailIdx = tileIdx - mainRow_ * mCoreNum_ * nCnt_;
+            Get<MNK_K>(blockCoord) = mainRow_ * mCoreNum_ + tailIdx % mTailCoreNum_;
+            Get<MNK_B>(blockCoord) = (tailIdx / mTailCoreNum_) % nCnt_;
+        }
+        if (rowIdx & 1) {
+            Get<MNK_B>(blockCoord) = nCnt_ - 1 - Get<MNK_B>(blockCoord);
+        }
+        Get<MNK_M>(blockCoord) = Get<MNK_K>(blockCoord) * baseM_;
+        Get<MNK_N>(blockCoord) = Get<MNK_B>(blockCoord) * baseN_;
+
         roundIdx_++;
         return true;
     }
 };
 
 template <class ProblemShape_>
-struct BlockSchedulerSelector<ProblemShape_, QuantMatmulMxBaseScheduler> {
-    using SchedulerOp = BlockSchedulerColumnMajorMx<ProblemShape_>;
+struct BlockSchedulerSelector<ProblemShape_, QuantMatmulMxSwatScheduler> {
+    using SchedulerOp = BlockSchedulerRowSplitMx<ProblemShape_>;
 };
 
 }  // namespace Block
 #endif
+
