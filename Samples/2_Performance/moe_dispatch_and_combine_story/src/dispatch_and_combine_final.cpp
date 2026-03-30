@@ -29,6 +29,7 @@
 #include "../include/moe_distribute_combine.h"
 
 static constexpr uint64_t SHMEM_SPACE_SIZE = 1024UL * 1024UL * 1024UL;
+static constexpr uint64_t DISPATCH_PACKAGE_SIZE = 512UL;
 static constexpr uint64_t AIV_CORE_NUM = 64UL;
 
 __global__ __aicore__ __vector__ void DispatchKernel(
@@ -139,7 +140,7 @@ int runDispatchAndCombine(int rankNum, int rankId, int bs) {
         ERROR_LOG("aclshmemx_init_attr failed"), return -1);
 
     int32_t aclshmemSize = SHMEM_SPACE_SIZE;
-    void *shmemSpace = aclshmem_malloc(aclshmemSize);
+    void *shmemSpace = aclshmem_align(DISPATCH_PACKAGE_SIZE, aclshmemSize);
 
     // init dispatch tiling and io
     DispatchTilingData dispatchTilingData;
