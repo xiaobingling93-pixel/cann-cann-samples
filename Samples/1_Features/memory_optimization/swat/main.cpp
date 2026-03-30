@@ -10,8 +10,7 @@
 
 /*!
  * \file main.cpp
- * \brief Main implementation file for Ascend matrix multiplication kernel
- *        This version includes unit flag optimization for cube unit pipelining
+ * \brief Implementation of matrix multiplication kernel for Ascend processors
  */
 
 #include <iostream>
@@ -26,73 +25,57 @@
 #include "tiling/platform/platform_ascendc.h"
 #include "include/tensor.h"
 
-namespace AscendC::Te {
-// Data loading trait definitions for matrix B
-constexpr LoadDataTrait LOAD_DATA_B_TRAIT{true};
-struct LoadData2BTrait {
-    using TraitType = LoadDataTrait;
-    static constexpr const TraitType value = LOAD_DATA_B_TRAIT;
-};
+namespace tool {
+constexpr static uint16_t ZERO_FLAG = 0;
+__aicore__ inline uint64_t CeilDiv(uint64_t a, uint64_t b);
+template <typename T>
+void FillRandomData(std::vector<T>& data, T min, T max);
+template <typename T>
+void ComputeGolden(
+    int m, int k, int n, std::vector<T>& hostInput, std::vector<T>& hostWeight, std::vector<T>& goldenOutput);
+template <typename T>
+std::vector<uint64_t> Compare(std::vector<T>& hostOutput, std::vector<T>& goldenOutput);
+} // namespace tool
 
-// Layout configuration for matrices A and B (NZ format by default)
-static constexpr bool transA = false;  // Don't transpose matrix A
-static constexpr bool transB = false;  // Don't transpose matrix B
+namespace AscendC::Te {
+static constexpr bool transA = false;
+static constexpr bool transB = false;
 template <typename T>
 using MakeLayoutAL1 =
     AscendC::Std::conditional_t<transA, AscendC::Te::ZnLayoutFormat<T>, AscendC::Te::NzLayoutFormat<T>>;
 template <typename T>
 using MakeLayoutBL1 =
     AscendC::Std::conditional_t<transB, AscendC::Te::ZnLayoutFormat<T>, AscendC::Te::NzLayoutFormat<T>>;
+
+constexpr LoadDataTrait LOAD_DATA_B_TRAIT{true};
+struct LoadData2BTrait {
+    using TraitType = LoadDataTrait;
+    static constexpr const TraitType value = LOAD_DATA_B_TRAIT;
+};
+
 } // namespace AscendC::Te
-
-namespace tool {
-// Basic configuration constants
-constexpr static uint16_t CUBE_BLOCK_SIZE = 16;  // Cube unit block size
-constexpr static uint16_t ZERO_FLAG = 0;         // Zero flag for synchronization
-
-// Unit flag values for cube unit pipelining
-constexpr uint32_t UNITFLAG_DISABLE = 0;         // Disable unit flag
-constexpr uint32_t NO_FINAL_ACCUMULATION = 2;          // Enable unit flag (inner loops)
-constexpr uint32_t FINAL_ACCUMULATION = 3;   // Enable unit flag for outer last iteration
-
-// Utility function declarations
-__aicore__ inline uint64_t CeilDiv(uint64_t a, uint64_t b);   // Ceiling division
-template <typename T>
-void FillRandomData(std::vector<T>& data, T min, T max);      // Fill vector with random data
-template <typename T>
-void ComputeGolden(    // Compute reference result on CPU
-    int m, int k, int n, std::vector<T>& hostInput, std::vector<T>& hostWeight, std::vector<T>& goldenOutput);
-template <typename T>
-std::vector<uint64_t> Compare(std::vector<T>& hostOutput, std::vector<T>& goldenOutput);  // Compare results
-} // namespace tool
 
 namespace matmul {
 /**
- * @brief Matrix multiplication kernel with unit flag optimization
- * 
- * This kernel implements C = A * B with optimizations:
- * - Tiled computation for memory hierarchy
- * - Unit flag support for cube unit pipelining
- * - Multi-core parallelization
- * 
- * @tparam T Data type (float in this implementation)
- * @param aGm Global memory pointer to matrix A (size m*k)
- * @param bGm Global memory pointer to matrix B (size k*n)
- * @param cGm Global memory pointer to output matrix C (size m*n)
- * @param m Rows of A and C
- * @param k Columns of A, rows of B
- * @param n Columns of B and C
+ * @brief Simple kernel example for matrix multiplication on Ascend processors
+ * @tparam T Data type of matrices (typically float)
+ * @param aGm Global memory address of input matrix A (size m×k)
+ * @param bGm Global memory address of input matrix B (size k×n)
+ * @param cGm Global memory address of output matrix C (size m×n)
+ * @param m Number of rows in matrix A
+ * @param k Number of columns in matrix A / rows in matrix B
+ * @param n Number of columns in matrix B
  */
 template <typename T>
 __global__ __aicore__ void MatmulKernel(GM_ADDR aGm, GM_ADDR bGm, GM_ADDR cGm, uint32_t m, uint32_t k, uint32_t n)
 {
-    KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIC_ONLY);  // Specify AI Core task type
+    KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIC_ONLY);
 
-    // Initialize tiling parameters based on memory sizes
+    // Initialize tiling parameters for efficient memory hierarchy utilization
     uint64_t baseM = 256;
     uint64_t baseN = 256;
-    uint64_t baseK = 128 / sizeof(T);
-    uint64_t kL1 = 512 / sizeof(T);
+    uint64_t baseK = 256 / sizeof(T);
+    uint64_t kL1 = 1024 / sizeof(T);
     uint64_t mTileNum = tool::CeilDiv(m, baseM);
     uint64_t nTileNum = tool::CeilDiv(n, baseN);
     uint64_t tileNum = mTileNum * nTileNum;
@@ -100,6 +83,16 @@ __global__ __aicore__ void MatmulKernel(GM_ADDR aGm, GM_ADDR bGm, GM_ADDR cGm, u
     uint64_t tailKL1 = k - (kL1TileNum - 1) * kL1;
     uint64_t tailBaseM = m - (mTileNum - 1) * baseM;
     uint64_t tailBaseN = n - (nTileNum - 1) * baseN;
+    uint64_t l0cOffset = 0;
+
+    // Initialize swat parameters
+    uint64_t mTileIdx = 0;
+    uint64_t nTileIdx = 0;
+    static constexpr uint64_t WINDOW_LEN = 4UL;
+    uint64_t mainWindow = WINDOW_LEN < mTileNum ? WINDOW_LEN : mTileNum;
+    uint64_t mainRow = mTileNum / mainWindow - 1;
+    uint64_t tailWindow = mTileNum - mainRow * mainWindow;
+    constexpr int64_t ROWS_PER_CYCLE = 2;
 
     uint64_t curBlockIdx = AscendC::GetBlockIdx();
     uint64_t blockNum = AscendC::GetBlockNum();
@@ -113,65 +106,75 @@ __global__ __aicore__ void MatmulKernel(GM_ADDR aGm, GM_ADDR bGm, GM_ADDR cGm, u
     auto tensorBgm = AscendC::Te::MakeTensor(AscendC::Te::MakeGMmemPtr(reinterpret_cast<__gm__ T*>(bGm)), layoutB);
     auto tensorCgm = AscendC::Te::MakeTensor(AscendC::Te::MakeGMmemPtr(reinterpret_cast<__gm__ T*>(cGm)), layoutC);
 
-    // Initialize synchronization flags for data movement
+    // Initialize synchronization flags for pipeline control
     AscendC::SetFlag<AscendC::HardEvent::MTE1_MTE2>(tool::ZERO_FLAG);
     AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(tool::ZERO_FLAG);
+    AscendC::SetFlag<AscendC::HardEvent::FIX_M>(tool::ZERO_FLAG);
 
-    // Multi-core tile processing loop - each core processes different tiles
+    // Multi-core tile processing loop - distribute tiles across available cores
     for (uint64_t tileIdx = curBlockIdx; tileIdx < tileNum; tileIdx += blockNum) {
-        uint64_t mTileIdx = tileIdx / nTileNum;
-        uint64_t nTileIdx = tileIdx % nTileNum;
+        // SWAT: Map linear tile index to 2D (mTileIdx, nTileIdx) grid.
+        // Process main window rows fully, then tail window.
+        // Reverse nTileIdx on odd rows for snake order to improve cache locality.
+        int64_t rowIdx = tileIdx / nTileNum / mainWindow;
+        if (rowIdx < mainRow) {
+            mTileIdx = rowIdx * mainWindow + tileIdx % mainWindow;
+            nTileIdx = (tileIdx / mainWindow) % nTileNum;
+        } else {
+            rowIdx = mainRow;
+            int64_t tailIndex = tileIdx - mainRow * mainWindow * nTileNum;
+            mTileIdx = mainRow * mainWindow + tailIndex % tailWindow;
+            nTileIdx = (tailIndex / tailWindow) % nTileNum;
+        }
+        if (rowIdx % ROWS_PER_CYCLE != 0) {
+            nTileIdx = nTileNum - 1 - nTileIdx;
+        }
+
         int64_t curM = mTileIdx == (mTileNum - 1) ? tailBaseM : baseM;
         int64_t curN = nTileIdx == (nTileNum - 1) ? tailBaseN : baseN;
 
-        // Extract current tile from global memory
-        uint64_t l0cOffset = 0;
-
+        // Slice GM to L1 - prepare memory pointers for this tile
         auto tensorAGmBlock = tensorAgm(AscendC::Te::MakeCoord(mTileIdx * baseM, 0L), AscendC::Te::MakeShape(curM, k));
         auto tensorBGmBlock = tensorBgm(AscendC::Te::MakeCoord(0L, nTileIdx * baseN), AscendC::Te::MakeShape(k, curN));
+
         auto tensorCGmBlock =
             tensorCgm(AscendC::Te::MakeCoord(mTileIdx * baseM, nTileIdx * baseN), AscendC::Te::MakeShape(curM, curN));
-
-        // Setup L0C tensor for accumulation
         auto layoutL0C = AscendC::Te::MakeL0CLayout(curM, curN);
         auto tensorL0C = AscendC::Te::MakeTensor(AscendC::Te::MakeL0CmemPtr<float>(l0cOffset), layoutL0C);
-        
-        // Loop over K dimension tiles for L1 buffer
+
+        AscendC::WaitFlag<AscendC::HardEvent::FIX_M>(tool::ZERO_FLAG);
+        // Process K dimension in multiple L1 tiles
         for (uint64_t iter0 = 0; iter0 < kL1TileNum; ++iter0) {
-            // Wait for previous GM->L1 transfer to complete
             AscendC::WaitFlag<AscendC::HardEvent::MTE1_MTE2>(tool::ZERO_FLAG);
 
-            // Determine current K tile size for L1
             auto curGmBKL1 = (iter0 + 1 == kL1TileNum) ? (k - iter0 * kL1) : kL1;
             auto curGmAKL1 = curGmBKL1;
 
-            // Copy GM to L1 buffers (single buffer version)
+            // Copy GM to L1 buffers
             uint64_t l1BufferAOffset = 0;
             uint64_t l1BufferBOffset = baseM * kL1 * sizeof(T);
 
+            // GM to L1 copy operation
             auto copyGM2L1 = AscendC::Te::MakeCopy(AscendC::Te::CopyGM2L1{});
             auto layoutAL1 = AscendC::Te::MakeLayoutAL1<T>{}(curM, curGmAKL1);
             auto tensorAL1 = AscendC::Te::MakeTensor(AscendC::Te::MakeL1memPtr<T>(l1BufferAOffset), layoutAL1);
-            // Copy A tile from GM to L1
-            auto tensorAGmTile = tensorAGmBlock(AscendC::Te::MakeCoord(0, iter0 * kL1), AscendC::Te::MakeShape(curM, curGmAKL1));
+            auto tensorAGmTile =
+                tensorAGmBlock(AscendC::Te::MakeCoord(0, iter0 * kL1), AscendC::Te::MakeShape(curM, curGmAKL1));
             AscendC::Te::Copy(copyGM2L1, tensorAL1, tensorAGmTile);
 
             auto layoutBL1 = AscendC::Te::MakeLayoutBL1<T>{}(curGmBKL1, curN);
             auto tensorBL1 = AscendC::Te::MakeTensor(AscendC::Te::MakeL1memPtr<T>(l1BufferBOffset), layoutBL1);
-            // Copy B tile from GM to L1
-            auto tensorBGmTile = tensorBGmBlock(AscendC::Te::MakeCoord(iter0 * kL1, 0), AscendC::Te::MakeShape(curGmBKL1, curN));
+            auto tensorBGmTile =
+                tensorBGmBlock(AscendC::Te::MakeCoord(iter0 * kL1, 0), AscendC::Te::MakeShape(curGmBKL1, curN));
             AscendC::Te::Copy(copyGM2L1, tensorBL1, tensorBGmTile);
 
-            // Signal L1 data ready and wait for it
             AscendC::SetFlag<AscendC::HardEvent::MTE2_MTE1>(tool::ZERO_FLAG);
             AscendC::WaitFlag<AscendC::HardEvent::MTE2_MTE1>(tool::ZERO_FLAG);
 
-            // Further tile K dimension for L0 buffer
+            // Process K dimension in multiple L0 tiles
             uint64_t kL0IterNum = tool::CeilDiv(curGmBKL1, baseK);
             uint64_t tailKL0 = curGmBKL1 - (kL0IterNum - 1) * baseK;
-            
             for (uint16_t iter1 = 0; iter1 < kL0IterNum; ++iter1) {
-                // Wait for previous L1->L0 transfer to complete
                 AscendC::WaitFlag<AscendC::HardEvent::M_MTE1>(tool::ZERO_FLAG);
 
                 uint64_t curKL0 = (iter1 + 1 == kL0IterNum) ? tailKL0 : baseK;
@@ -180,39 +183,26 @@ __global__ __aicore__ void MatmulKernel(GM_ADDR aGm, GM_ADDR bGm, GM_ADDR cGm, u
                 auto copyL12L0 = AscendC::Te::MakeCopy(AscendC::Te::CopyL12L0{});
                 auto layoutAL0 = AscendC::Te::MakeNzLayout<T>(curM, curKL0);
                 auto tensorAL0 = AscendC::Te::MakeTensor(AscendC::Te::MakeL0AmemPtr<T>(0), layoutAL0);
-                // Copy A sub-tile from L1 to L0
                 auto tensorAL1Tile =
                     tensorAL1(AscendC::Te::MakeCoord(0, iter1 * baseK), AscendC::Te::MakeShape(curM, curKL0));
                 AscendC::Te::Copy(copyL12L0, tensorAL0, tensorAL1Tile);
 
                 auto layoutBL0 = AscendC::Te::MakeZnLayout<T>(curKL0, curN);
                 auto tensorBL0 = AscendC::Te::MakeTensor(AscendC::Te::MakeL0BmemPtr<T>(0), layoutBL0);
-                // Copy B sub-tile from L1 to L0
                 auto tensorBL1Tile =
                     tensorBL1(AscendC::Te::MakeCoord(iter1 * baseK, 0), AscendC::Te::MakeShape(curKL0, curN));
                 AscendC::Te::Copy(copyL12L0, tensorBL0, tensorBL1Tile);
 
-                // Signal L0 data ready and wait for it
                 AscendC::SetFlag<AscendC::HardEvent::MTE1_M>(tool::ZERO_FLAG);
                 AscendC::WaitFlag<AscendC::HardEvent::MTE1_M>(tool::ZERO_FLAG);
 
-                // Execute M-MAD operation with unit flag optimization
+                // Execute M-MAD operation (matrix multiplication)
                 AscendC::MmadParams para;
                 para.cmatrixInitVal = (iter1 == 0 && iter0 == 0);
                 para.m = curM;
                 para.n = curN;
                 para.k = curKL0;
 
-                // Configure unit flag for cube unit pipelining
-                if (iter1 == (kL0IterNum - 1) && iter0 == (kL1TileNum - 1)) {
-                    // Last K tile - special flag for outer loop termination
-                    para.unitFlag = tool::FINAL_ACCUMULATION;
-                } else {
-                    // Not the last K tile - enable pipelining
-                    para.unitFlag = tool::NO_FINAL_ACCUMULATION;
-                }
-                
-                // Perform MAD operation: C += A * B
                 auto MadOp = AscendC::Te::MakeMad(AscendC::Te::MmadOperation{}, AscendC::Te::MmadTraitDefault{});
                 AscendC::Te::Mad(MadOp, tensorL0C, tensorAL0, tensorBL0, para);
 
@@ -220,20 +210,24 @@ __global__ __aicore__ void MatmulKernel(GM_ADDR aGm, GM_ADDR bGm, GM_ADDR cGm, u
             }
             AscendC::SetFlag<AscendC::HardEvent::MTE1_MTE2>(tool::ZERO_FLAG);
         }
-        
-        // Copy result from L0C to global memory with unit flag
-        auto copyL0C2GM = AscendC::Te::MakeCopy(AscendC::Te::CopyL0C2GM{});
-        AscendC::Te::Copy(copyL0C2GM, tensorCGmBlock, tensorL0C, AscendC::Te::FixpipeParams{tool::FINAL_ACCUMULATION});
+        AscendC::SetFlag<AscendC::HardEvent::M_FIX>(tool::ZERO_FLAG);
+        AscendC::WaitFlag<AscendC::HardEvent::M_FIX>(tool::ZERO_FLAG);
+
+        // Copy result from L0C to GM
+        auto copyL0C2GM = AscendC::Te::MakeCopy(AscendC::Te::CopyL0C2GM{}); 
+        AscendC::Te::Copy(copyL0C2GM, tensorCGmBlock, tensorL0C);           
+
+        AscendC::SetFlag<AscendC::HardEvent::FIX_M>(tool::ZERO_FLAG);
     }
-    
-    // Final synchronization waits
+    // Final synchronization for all pipeline stages
     AscendC::WaitFlag<AscendC::HardEvent::MTE1_MTE2>(tool::ZERO_FLAG);
     AscendC::WaitFlag<AscendC::HardEvent::M_MTE1>(tool::ZERO_FLAG);
+    AscendC::WaitFlag<AscendC::HardEvent::FIX_M>(tool::ZERO_FLAG);
 }
 
 } // namespace matmul
 
-// Utility macro for condition checking with error message
+// Macro for condition checking with error message
 #define CHECK_COND(cond, message, return_expr)              \
     do {                                                    \
         if (!(cond)) {                                      \
@@ -242,7 +236,10 @@ __global__ __aicore__ void MatmulKernel(GM_ADDR aGm, GM_ADDR bGm, GM_ADDR cGm, u
         }                                                   \
     } while (0)
 
-// Print command-line usage help
+/**
+ * @brief Print command-line usage help
+ * @param programName Name of the executable
+ */
 void printUsage(const std::string& programName)
 {
     std::cerr << "Usage: " << programName << " m k n" << std::endl;
@@ -253,7 +250,15 @@ void printUsage(const std::string& programName)
     std::cerr << "Example: " << programName << " 100 50 200" << std::endl;
 }
 
-// Brief parses and validates command-line arguments
+/**
+ * @brief Parse and validate command-line arguments
+ * @param argc Argument count
+ * @param argv Argument vector
+ * @param m Output parameter for M dimension
+ * @param k Output parameter for K dimension
+ * @param n Output parameter for N dimension
+ * @throws std::invalid_argument on invalid input
+ */
 void parseArguments(int argc, char* argv[], int& m, int& k, int& n)
 {
     if (argc >= 2 && (std::string(argv[1]) == "--help" || std::string(argv[1]) == "-h")) {
@@ -277,15 +282,10 @@ void parseArguments(int argc, char* argv[], int& m, int& k, int& n)
 }
 
 /**
- * @brief Main function - host-side setup and execution
- * 
- * This function handles:
- * 1. Command line argument parsing
- * 2. ACL resource initialization
- * 3. Memory allocation and data transfer
- * 4. Kernel launch
- * 5. Result verification
- * 6. Resource cleanup
+ * @brief Main function - host code for matrix multiplication
+ * @param argc Argument count
+ * @param argv Argument vector
+ * @return 0 on success, non-zero on failure
  */
 int main(int argc, char* argv[])
 {
@@ -299,7 +299,7 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    // Initialize ACL resources
+    // Initialize ACL (Ascend Computing Language) resources
     int32_t deviceId = 0;
     aclrtStream stream;
     auto ret = aclInit(nullptr);
@@ -310,22 +310,20 @@ int main(int argc, char* argv[])
     CHECK_COND(ret == ACL_SUCCESS, "aclrtCreateStream failed.", return 1);
 
     // Allocate host memory and fill with random data
-    std::vector<float> hostInput(m * k, 0);
-    std::vector<float> hostWeight(k * n, 0);
-    std::vector<float> hostOutput(m * n, 0);
-    std::vector<float> goldenOutput(m * n, 0);
+    std::vector<float> hostInput(m * k, 0);    // Input matrix A
+    std::vector<float> hostWeight(k * n, 0);   // Input matrix B
+    std::vector<float> hostOutput(m * n, 0);   // Output matrix C from device
+    std::vector<float> goldenOutput(m * n, 0); // Reference output from CPU
     FillRandomData<float>(hostInput, -2.0f, 2.0f);
     FillRandomData<float>(hostWeight, -2.0f, 2.0f);
 
     // Allocate device memory
-    GM_ADDR deviceInput = nullptr;
-    GM_ADDR deviceWeight = nullptr;
-    GM_ADDR deviceOutput = nullptr;
+    GM_ADDR deviceInput = nullptr;  // Device pointer for matrix A
+    GM_ADDR deviceWeight = nullptr; // Device pointer for matrix B
+    GM_ADDR deviceOutput = nullptr; // Device pointer for matrix C
     auto sizeInput = hostInput.size() * sizeof(float);
     auto sizeWeight = hostWeight.size() * sizeof(float);
     auto sizeOutput = hostOutput.size() * sizeof(float);
-    
-    // Use RAII for automatic cleanup
     std::unique_ptr<void, aclError (*)(void*)> deviceInputPtr(nullptr, aclrtFree);
     ret = aclrtMalloc((void**)&deviceInput, sizeInput, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_COND(ret == ACL_SUCCESS, "aclrtMalloc deviceInput failed.", return 1);
@@ -350,33 +348,33 @@ int main(int argc, char* argv[])
     // Get platform instance to access AI core information and setup kernel timing events
     auto ascendcPlatform = platform_ascendc::PlatformAscendCManager::GetInstance();
     CHECK_COND(ascendcPlatform != nullptr, "get ascendcPlatform failed.", return 1);
-    uint32_t numBlocks = ascendcPlatform->GetCoreNumAic();  // Number of AI cores
+    uint32_t numBlocks = ascendcPlatform->GetCoreNumAic(); // Get number of AI cores
 
-    // Launch kernel on all available AI cores
+    // Launch kernel on device
     matmul::MatmulKernel<float><<<numBlocks, nullptr, stream>>>(deviceInput, deviceWeight, deviceOutput, m, k, n);
 
     // Wait for kernel completion
     ret = aclrtSynchronizeStream(stream);
     CHECK_COND(ret == ACL_SUCCESS, "aclrtSynchronizeStream failed.", return 1);
 
-    // Copy result back from device to host
+    // Copy result from device back to host
     ret = aclrtMemcpy(hostOutput.data(), sizeOutput, deviceOutput, sizeOutput, ACL_MEMCPY_DEVICE_TO_HOST);
     CHECK_COND(ret == ACL_SUCCESS, "aclrtMemcpy deviceOutput failed.", return 1);
 
-    // Verify results against CPU golden reference
+    // Verify results against CPU reference
     ComputeGolden<float>(m, k, n, hostInput, hostWeight, goldenOutput);
     std::vector<uint64_t> errorIndices = Compare<float>(hostOutput, goldenOutput);
     if (errorIndices.size() == 0) {
         std::cout << "matmul run successfully!" << std::endl;
     } else {
         for (uint64_t i : errorIndices) {
-            std::cout << "error index: " << i << ", output: " << hostOutput[i]
-                      << ", golden: " << goldenOutput[i] << std::endl;
+            std::cout << "error index: " << i << ", output: " << hostOutput[i] << ", golden: " << goldenOutput[i]
+                      << std::endl;
         }
         std::cout << "matmul run failed!" << std::endl;
     }
 
-    // Cleanup resources (unique_ptr handles device memory)
+    // Cleanup resources
     std::unique_ptr<void, aclError (*)(void*)> DeviceOutputAddr(deviceOutput, aclrtFree);
     aclrtDestroyStream(stream);
     aclrtResetDevice(deviceId);
@@ -386,8 +384,7 @@ int main(int argc, char* argv[])
 
 namespace tool {
 /**
- * @brief Ceiling division for integer arithmetic
- * 
+ * @brief Compute ceiling division of two integers
  * @param a Numerator
  * @param b Denominator
  * @return Ceiling of a/b
@@ -401,8 +398,7 @@ __aicore__ inline uint64_t CeilDiv(uint64_t a, uint64_t b)
 }
 
 /**
- * @brief Fill a vector with random data
- * 
+ * @brief Fill a vector with random data within specified range
  * @tparam T Data type (integral or floating point)
  * @param data Vector to fill
  * @param min Minimum value
@@ -425,15 +421,14 @@ void FillRandomData(std::vector<T>& data, T min, T max)
 }
 
 /**
- * @brief Compute matrix multiplication on CPU as golden reference
- * 
+ * @brief Compute reference matrix multiplication result on CPU
  * @tparam T Data type
- * @param m Rows of A
- * @param k Columns of A / Rows of B
- * @param n Columns of B
- * @param hostInput Matrix A
- * @param hostWeight Matrix B
- * @param goldenOutput Output matrix C (reference)
+ * @param m Number of rows in matrix A
+ * @param k Number of columns in matrix A / rows in matrix B
+ * @param n Number of columns in matrix B
+ * @param hostInput Input matrix A (size m×k)
+ * @param hostWeight Input matrix B (size k×n)
+ * @param goldenOutput Output reference matrix C (size m×n)
  */
 template <typename T>
 void ComputeGolden(
@@ -454,18 +449,17 @@ void ComputeGolden(
 }
 
 /**
- * @brief Compare kernel output with golden reference
- * 
+ * @brief Compare device output with golden reference
  * @tparam T Data type
- * @param hostOutput Kernel output
- * @param goldenOutput CPU reference
- * @return std::vector<uint64_t> Indices where values differ beyond tolerance
+ * @param hostOutput Output from device
+ * @param goldenOutput Reference output from CPU
+ * @return Vector of indices where values differ beyond tolerance
  */
 template <typename T>
 std::vector<uint64_t> Compare(std::vector<T>& hostOutput, std::vector<T>& goldenOutput)
 {
     std::vector<uint64_t> errorIndices;
-    const float rtol = 1.0f / 256;  // Relative tolerance for float comparison
+    const float rtol = 1.0f / 256; // Relative tolerance (1/256 ≈ 0.0039)
     for (uint64_t i = 0; i < hostOutput.size(); ++i) {
         T actualValue = hostOutput[i];
         T expectValue = goldenOutput[i];

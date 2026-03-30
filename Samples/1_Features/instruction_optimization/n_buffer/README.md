@@ -28,7 +28,7 @@
 ## 2. 实践：使用DB优化matmul计算流水
 
 ### 2.1 代码
-以下以一个典型的MatMul计算为例，展示如何改造为DB使能版本。
+&ensp;&ensp;以下以一个典型的MatMul计算为例，展示如何改造为DB使能版本。
 
 #### 2.1.1 流水同步事件初始化
 
@@ -229,25 +229,29 @@ AscendC::WaitFlag<AscendC::HardEvent::M_MTE1>(FIRST_FLAG);
 
 ## 3 性能结果对比
 ### 3.1 case前后性能
-以基础MatMul算子为例，在相同输入规模（M=512, K=512, N=512）下进行性能测试，通过Profiling工具采集硬件流水线执行状态。
+&ensp;&ensp;以基础MatMul算子为例，在相同输入规模（M=512, K=512, N=512）下进行性能测试，通过Profiling工具采集硬件流水线执行状态。
 未开启双buffer优化时：
 
-![N_buffer_image3](./images/image-2.png)
+<div align="center">
+  <img src="./images/image-2.png" alt="N_buffer_image3" style="width: 80%; height: auto;">
+</div>
 
 从上图可以看出，在串行执行模式下，计算单元（Cube）与数据搬运单元（MTE2）呈现明显的交替工作状态。当搬运单元加载数据时，计算单元处于空闲等待状态；而当计算单元开始运算时，搬运单元又停止工作。这种“搬-等-算-等”的串行模式导致硬件资源利用率低下，流水线中出现大量空洞，整体执行时间较长。
 
 开双buffer优化结果：
 
-![N_buffer_image4](./images/image-3.png)
+<div align="center">
+  <img src="./images/image-3.png" alt="N_buffer_image4" style="width: 80%; height: auto;">
+</div>
 
-开启DB特性后，硬件流水线状态发生显著变化。计算单元与搬运单元实现高度并行：在Cube单元处理当前数据块的同时，MTE2单元已经开始预加载下一块数据。从图中可以清晰看到，两条流水线几乎完全重叠，流水线空洞大幅减少，硬件资源得到充分利用。最终体现在执行时间上，算子端到端延迟降低约40%，硬件利用率提升至接近理论峰值。
+&ensp;&ensp;开启DB特性后，硬件流水线状态发生显著变化。计算单元与搬运单元实现高度并行：在Cube单元处理当前数据块的同时，MTE2单元已经开始预加载下一块数据。从图中可以清晰看到，两条流水线几乎完全重叠，流水线空洞大幅减少，硬件资源得到充分利用。最终体现在执行时间上，算子端到端延迟降低约40%，硬件利用率提升至接近理论峰值。
 
 ## 4. 结论
 适用场景：
 * **搬运带宽遇到瓶颈**：当单次计算耗时远小于搬运时，带宽遇到瓶颈，开启db可以有效提升搬运效率。
 * **多核并行**： 每个核独立使用DB，整体收益累加
 
-对于是否可以通过开启DB来提升流水并行度，可以先分析Profiling数据，判断当前瓶颈是计算还是搬运。若搬运时间远大于计算，优先尝试DB优化，同时需要结合Tiling策略，确保切分后的Tile大小可以在开启双buffer后不超出硬件资源，多核使用时注意线程同步。
+&ensp;&ensp;对于是否可以通过开启DB来提升流水并行度，可以先分析Profiling数据，判断当前瓶颈是计算还是搬运。若搬运时间远大于计算，优先尝试DB优化，同时需要结合Tiling策略，确保切分后的Tile大小可以在开启双buffer后不超出硬件资源，多核使用时注意线程同步。
 ## 5.编译 执行
 
 1. 编译样例
@@ -256,15 +260,15 @@ AscendC::WaitFlag<AscendC::HardEvent::M_MTE1>(FIRST_FLAG);
 
 指定matmul的编译命令：
 ```shell
-cmake --build build --target N_Buffer
+cmake --build build --target n_buffer
 ```
 
 2. 运行样例
 
-切换到可执行目录文件的所在目录`build/Samples/1_Features/N_Buffer/`, 使用可执行文件直接执行算子用例，需要指定矩阵乘维度，并随机生成输入数据。
+切换到可执行目录文件的所在目录`build/Samples/1_Features/instruction_optimization/n_buffer/`, 使用可执行文件直接执行算子用例，需要指定矩阵乘维度，并随机生成输入数据。
 ```shell
-cd ./build/Samples/1_Features/N_Buffer/
-N_Buffer 1024 2048 4096
+cd ./build/Samples/1_Features/instruction_optimization/n_buffer/
+./n_buffer 1024 2048 4096
 ```
 打印如下执行结果，证明样例执行成功。
 ```shell
@@ -274,6 +278,13 @@ matmul run successfully!
 ```shell
 matmul run failed!
 ```
+
+3. 测试性能
+切换到可执行目录文件的所在目录`build/Samples/0_Introduction/matmul/`,使用msprof工具执行算子用例，指定矩阵乘维度后执行。
+```shell
+msprof ./matmul 1024 2048 4096
+```
+运行完成后，在 `PROF_{序号}_{时间信息}CJEMEBCM/mindstudio_profiler_output/` 目录下获取 `op_summary_{时间信息}.csv` 文件，查看统计耗时以评估性能。
 
 ## 6. 支持架构
 

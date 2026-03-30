@@ -9,4 +9,21 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------
 
-add_subdirectory(swat)
+add_executable(swat main.cpp)
+
+target_include_directories(swat PRIVATE ${ASCEND_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/tensor_api)
+target_compile_options(swat PRIVATE
+    "-xasc"
+    "--npu-arch=dav-3510"
+    "-w"
+    "-O3"
+)
+
+target_link_libraries(swat
+    PRIVATE
+    cann_samples::ascend_base
+)
+
+install(TARGETS swat
+    RUNTIME DESTINATION 1_Features/memory_optimization/swat
+)

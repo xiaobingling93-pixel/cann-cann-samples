@@ -43,7 +43,7 @@ cmake --build build --target matmul
 切换到可执行目录文件的所在目录`build/Samples/0_Introduction/matmul/`, 使用可执行文件直接执行算子用例，需要指定矩阵乘维度，并随机生成输入数据。
 ```shell
 cd ./build/Samples/0_Introduction/matmul/
-matmul 1024 2048 4096
+./matmul 1024 2048 4096
 ```
 打印如下执行结果，证明样例执行成功。
 ```shell
@@ -53,3 +53,10 @@ matmul run successfully!
 ```shell
 matmul run failed!
 ```
+
+3. 测试性能
+切换到可执行目录文件的所在目录`build/Samples/0_Introduction/matmul/`,使用msprof工具执行算子用例，指定矩阵乘维度后执行。
+```shell
+msprof ./matmul 1024 2048 4096
+```
+运行完成后，在 `PROF_{序号}_{时间信息}CJEMEBCM/mindstudio_profiler_output/` 目录下获取 `op_summary_{时间信息}.csv` 文件，查看统计耗时以评估性能。

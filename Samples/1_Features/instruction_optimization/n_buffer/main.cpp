@@ -67,7 +67,6 @@ void ComputeGolden(    // Compute reference result on CPU
 template <typename T>
 std::vector<uint64_t> Compare(std::vector<T>& hostOutput, std::vector<T>& goldenOutput);  // Compare results
 __aicore__ inline uint64_t CeilDiv(uint64_t a, uint64_t b);   // Ceiling division
-__aicore__ inline uint64_t CeilAlign(uint64_t a, uint64_t b);   // Ceiling Align
 } // namespace tool
 
 namespace matmul {
@@ -102,8 +101,9 @@ __global__ __aicore__ void MatmulKernel(GM_ADDR aGm, GM_ADDR bGm, GM_ADDR cGm, u
     uint64_t tileNum = mTileNum * nTileNum;
     uint64_t kL1TileNum = tool::CeilDiv(k, kL1);
     uint64_t tailKL1 = k - (kL1TileNum - 1) * kL1;
-    uint64_t tailBaseM = tool::CeilAlign(m - (mTileNum - 1) * baseM, 16);
-    uint64_t tailBaseN = tool::CeilAlign(n - (nTileNum - 1) * baseN, 16);
+    uint64_t tailBaseM = m - (mTileNum - 1) * baseM;
+    uint64_t tailBaseN = n - (nTileNum - 1) * baseN;
+    uint64_t l0cOffset = 0;  // L0C buffer offset
 
     uint64_t curBlockIdx = AscendC::GetBlockIdx();
     uint64_t blockNum = AscendC::GetBlockNum();
@@ -111,7 +111,6 @@ __global__ __aicore__ void MatmulKernel(GM_ADDR aGm, GM_ADDR bGm, GM_ADDR cGm, u
     // Double buffering indices
     uint64_t l0PingPong_ = 0;    // L0 buffer ping-pong index
     uint64_t l1PingPong = 0;     // L1 buffer ping-pong index
-    uint64_t l0CPingPong = 0;    // L0C buffer ping-pong index
     uint64_t l1BufferAOffset[2] = {0UL};  // L1 buffer offsets for matrix A (ping/pong)
     uint64_t l1BufferBOffset[2] = {0UL};  // L1 buffer offsets for matrix B (ping/pong)
 
@@ -137,17 +136,12 @@ __global__ __aicore__ void MatmulKernel(GM_ADDR aGm, GM_ADDR bGm, GM_ADDR cGm, u
         uint64_t nTileIdx = tileIdx % nTileNum;
         int64_t curM = mTileIdx == (mTileNum - 1) ? tailBaseM : baseM;
         int64_t curN = nTileIdx == (nTileNum - 1) ? tailBaseN : baseN;
-        int64_t realM = mTileIdx == (mTileNum - 1) ? (m - (mTileNum - 1) * baseM) : baseM;
-        int64_t realN = nTileIdx == (nTileNum - 1) ? (n - (nTileNum - 1) * baseN) : baseN;
-
-        // Select L0C buffer region based on ping-pong index
-        uint64_t l0cOffset = (l0CPingPong & 1) * tool::HALF_L0C_SIZE;
 
         // Extract current tile from global memory
         auto tensorAGmBlock = tensorAgm(AscendC::Te::MakeCoord(mTileIdx * baseM, 0L), AscendC::Te::MakeShape(curM, k));
         auto tensorBGmBlock = tensorBgm(AscendC::Te::MakeCoord(0L, nTileIdx * baseN), AscendC::Te::MakeShape(k, curN));
         auto tensorCGmBlock =
-            tensorCgm(AscendC::Te::MakeCoord(mTileIdx * baseM, nTileIdx * baseN), AscendC::Te::MakeShape(realM, realN));
+            tensorCgm(AscendC::Te::MakeCoord(mTileIdx * baseM, nTileIdx * baseN), AscendC::Te::MakeShape(curM, curN));
 
         // Setup L0C tensor for accumulation
         auto layoutL0C = AscendC::Te::MakeL0CLayout(curM, curN);
@@ -160,7 +154,7 @@ __global__ __aicore__ void MatmulKernel(GM_ADDR aGm, GM_ADDR bGm, GM_ADDR cGm, u
             AscendC::WaitFlag<AscendC::HardEvent::MTE1_MTE2>(l1BufId);  // Wait for previous transfer
 
             // Determine current K tile sizes
-            auto curGmBKL1 = (iter0 + 1 == kL1TileNum) ? tool::CeilAlign((k - iter0 * kL1), 16) : kL1;
+            auto curGmBKL1 = (iter0 + 1 == kL1TileNum) ? (k - iter0 * kL1) : kL1;
             auto curGmAKL1 = curGmBKL1;
 
             // Copy GM to L1 buffers with double buffering
@@ -241,7 +235,6 @@ __global__ __aicore__ void MatmulKernel(GM_ADDR aGm, GM_ADDR bGm, GM_ADDR cGm, u
         AscendC::Te::Copy(copyL0C2GM, tensorCGmBlock, tensorL0C);
 
         AscendC::SetFlag<AscendC::HardEvent::FIX_M>(tool::ZERO_FLAG);
-        l0CPingPong++;  // Toggle L0C buffer
     }
     
     // Final synchronization waits
@@ -323,8 +316,6 @@ int main(int argc, char* argv[])
     // Initialize ACL resources
     int32_t deviceId = 0;
     aclrtStream stream;
-    aclrtEvent kernelStartEvent = nullptr;
-    aclrtEvent kernelEndEvent = nullptr;
     auto ret = aclInit(nullptr);
     CHECK_COND(ret == ACL_SUCCESS, "aclInit failed.", return 1);
     ret = aclrtSetDevice(deviceId);
@@ -372,25 +363,13 @@ int main(int argc, char* argv[])
     auto ascendcPlatform = platform_ascendc::PlatformAscendCManager::GetInstance();
     CHECK_COND(ascendcPlatform != nullptr, "get ascendcPlatform failed.", return 1);
     uint32_t numBlocks = ascendcPlatform->GetCoreNumAic();  // Number of AI cores
-    ret = aclrtCreateEvent(&kernelStartEvent);
-    CHECK_COND(ret == ACL_SUCCESS, "Failed to create the start event for kernel timing.", return 1);
-    ret = aclrtCreateEvent(&kernelEndEvent);
-    CHECK_COND(ret == ACL_SUCCESS, "Failed to create the end event for kernel timing.", return 1);
-    ret = aclrtRecordEvent(kernelStartEvent, stream);
-    CHECK_COND(ret == ACL_SUCCESS, "Failed to record the start event for kernel timing.", return 1);
 
     // Launch kernel on all available AI cores
     matmul::MatmulKernel<float><<<numBlocks, nullptr, stream>>>(deviceInput, deviceWeight, deviceOutput, m, k, n);
 
-    ret = aclrtRecordEvent(kernelEndEvent, stream);
-    CHECK_COND(ret == ACL_SUCCESS, "Failed to record the end event for kernel timing.", return 1);
     // Wait for kernel completion
     ret = aclrtSynchronizeStream(stream);
     CHECK_COND(ret == ACL_SUCCESS, "aclrtSynchronizeStream failed.", return 1);
-    float kernelElapsedMs = 0.0F;
-    ret = aclrtEventElapsedTime(&kernelElapsedMs, kernelStartEvent, kernelEndEvent);
-    CHECK_COND(ret == ACL_SUCCESS, "Failed to query the kernel elapsed time.", return 1);
-    double kernelElapsedUs = static_cast<double>(kernelElapsedMs) * 1000.0;
 
     // Copy result back from device to host
     ret = aclrtMemcpy(hostOutput.data(), sizeOutput, deviceOutput, sizeOutput, ACL_MEMCPY_DEVICE_TO_HOST);
@@ -408,14 +387,6 @@ int main(int argc, char* argv[])
         }
         std::cout << "matmul run failed!" << std::endl;
     }
-
-    std::cout << std::fixed << std::setprecision(3) << "Kernel elapsed time: "
-        << kernelElapsedUs << " us" << std::endl;
-    std::cout << "Timing note: event-based timing may be skewed when the NPU is hared. "
-                 "If the device is not exclusively owned, or the reported time is unstable, "
-                 "use the `msprof` command for precise profiling."
-              << std::endl;
-
     // Cleanup resources (using RAII with unique_ptr)
     std::unique_ptr<void, aclError (*)(void*)> DeviceOutputAddr(deviceOutput, aclrtFree);
     aclrtDestroyStream(stream);
@@ -511,14 +482,6 @@ __aicore__ inline uint64_t CeilDiv(uint64_t a, uint64_t b)
         return a;
     }
     return (a + b - 1) / b;
-}
-
-/**
- * @brief Ceiling alignment: returns smallest multiple of b that is >= a
- */
-__aicore__ inline uint64_t CeilAlign(uint64_t a, uint64_t b)
-{
-    return CeilDiv(a, b) * b;
 }
 
 } // namespace tool

@@ -99,13 +99,13 @@ AscendC::Te::Copy(copyL0C2GM, gmBlockC_, tensorL0C, AscendC::Te::FixpipeParams{U
 未开启unit_flag优化前：
 
 <div align="center">
-  <img src="./images/image-3.png" alt="未开启unit_flag优化">
+  <img src="./images/image-3.png" alt="未开启unit_flag优化" style="width: 80%; height: auto;">
 </div>
 
 开启unit_flag优化后：
 
 <div align="center">
-  <img src="./images/image-4.png" alt="开启unit_flag优化后">
+  <img src="./images/image-4.png" alt="开启unit_flag优化后" style="width: 80%; height: auto;">
 </div>
 
 &ensp;&ensp;在优化后的时序图中，fixpipe 流水段长度显著增加，其根本原因在于 fixpipe 与 mmad 的流水线解绑。解绑后，fixpipe 的指令下发时机提前，但其对应的数据搬运操作并未同步启动，而是延迟至尾轮计算完成、数据累加结束后才进行实际的数据搬移。下一轮 mmad 计算必须等待 fixpipe 完成数据搬运后方可开始，导致该轮 mmad 的计算等待时间延长，整体流水线出现展宽。
@@ -136,10 +136,10 @@ cmake --build build --target unit_flag
 
 2. 运行样例
 
-切换到可执行目录文件的所在目录`build/Samples/1_Features/unit_flag/`, 使用可执行文件直接执行算子用例，需要指定矩阵乘维度，并随机生成输入数据。
+切换到可执行目录文件的所在目录`build/Samples/1_Features/instruction_optimization/unit_flag/`, 使用可执行文件直接执行算子用例，需要指定矩阵乘维度，并随机生成输入数据。
 ```shell
-cd ./build/Samples/1_Features/unit_flag/
-unit_flag 1024 2048 4096
+cd ./build/Samples/1_Features/instruction_optimization/unit_flag/
+./unit_flag 1024 2048 4096
 ```
 打印如下执行结果，证明样例执行成功。
 ```shell
@@ -149,6 +149,13 @@ matmul run successfully!
 ```shell
 matmul run failed!
 ```
+
+3. 测试性能
+切换到可执行目录文件的所在目录`build/Samples/0_Introduction/matmul/`,使用msprof工具执行算子用例，指定矩阵乘维度后执行。
+```shell
+msprof ./matmul 1024 2048 4096
+```
+运行完成后，在 `PROF_{序号}_{时间信息}CJEMEBCM/mindstudio_profiler_output/` 目录下获取 `op_summary_{时间信息}.csv` 文件，查看统计耗时以评估性能。
 
 ## 6. 支持架构
 
