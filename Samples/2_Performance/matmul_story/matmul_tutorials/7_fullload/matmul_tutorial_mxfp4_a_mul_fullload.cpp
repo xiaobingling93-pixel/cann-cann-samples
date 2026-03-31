@@ -8,15 +8,13 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
- #include <cmath>
- #include <cstdlib>
- #include <iostream>
- #include <limits.h>
- #include <unistd.h>
- #include <memory>
- #include <random>
- #include <string>
- #include <vector>
+#include <iostream>
+#include <cstdlib>
+#include <limits.h>
+#include <unistd.h>
+#include <memory>
+#include <string>
+#include <vector>
 
 #if ASC_DEVKIT_MAJOR >= 9
 #include "kernel_basic_intf.h"
@@ -115,10 +113,6 @@ void parseArguments(int argc, char* argv[], int& m, int& k, int& n)
     if (k % 2 != 0) {
         throw std::invalid_argument("ERROR: k must be an even number");
     }
-
-    if (CeilDiv(k, 32) % 2 != 0) {
-        throw std::invalid_argument("ERROR: k should satisfy that CeilDiv(k, 32) is an even number");
-    }
 }
 int main(int argc, char* argv[])
 {
@@ -180,19 +174,19 @@ int main(int argc, char* argv[])
     GM_ADDR deviceScaleA = nullptr;
     GM_ADDR deviceScaleB = nullptr;
     GM_ADDR deviceOutput = nullptr;
-    ret = aclrtMalloc((void**)&deviceA, sizeA, ACL_MEM_MALLOC_HUGE_FIRST);
+    ret = aclrtMalloc((void**)&deviceA, sizeA, ACL_MEM_MALLOC_HUGE_ONLY);
     std::unique_ptr<void, aclError (*)(void*)> DeviceAAddr(deviceA, aclrtFree);
     CHECK_COND(ret == ACL_SUCCESS, "aclrtMalloc deviceA failed.");
-    ret = aclrtMalloc((void**)&deviceB, sizeB, ACL_MEM_MALLOC_HUGE_FIRST);
+    ret = aclrtMalloc((void**)&deviceB, sizeB, ACL_MEM_MALLOC_HUGE_ONLY);
     std::unique_ptr<void, aclError (*)(void*)> DeviceBAddr(deviceB, aclrtFree);
     CHECK_COND(ret == ACL_SUCCESS, "aclrtMalloc deviceB failed.");
-    ret = aclrtMalloc((void**)&deviceScaleA, sizeScaleA, ACL_MEM_MALLOC_HUGE_FIRST);
+    ret = aclrtMalloc((void**)&deviceScaleA, sizeScaleA, ACL_MEM_MALLOC_HUGE_ONLY);
     std::unique_ptr<void, aclError (*)(void*)> DeviceScaleAAddr(deviceScaleA, aclrtFree);
     CHECK_COND(ret == ACL_SUCCESS, "aclrtMalloc deviceScaleA failed.");
-    ret = aclrtMalloc((void**)&deviceScaleB, sizeScaleB, ACL_MEM_MALLOC_HUGE_FIRST);
+    ret = aclrtMalloc((void**)&deviceScaleB, sizeScaleB, ACL_MEM_MALLOC_HUGE_ONLY);
     std::unique_ptr<void, aclError (*)(void*)> DeviceScaleBAddr(deviceScaleB, aclrtFree);
     CHECK_COND(ret == ACL_SUCCESS, "aclrtMalloc deviceScaleB failed.");
-    ret = aclrtMalloc((void**)&deviceOutput, sizeOutput, ACL_MEM_MALLOC_HUGE_FIRST);
+    ret = aclrtMalloc((void**)&deviceOutput, sizeOutput, ACL_MEM_MALLOC_HUGE_ONLY);
     std::unique_ptr<void, aclError (*)(void*)> DeviceOutputAddr(deviceOutput, aclrtFree);
     CHECK_COND(ret == ACL_SUCCESS, "aclrtMalloc deviceOutput failed.");
 
