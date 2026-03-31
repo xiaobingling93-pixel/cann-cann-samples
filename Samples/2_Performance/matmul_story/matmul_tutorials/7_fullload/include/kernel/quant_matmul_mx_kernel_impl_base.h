@@ -25,9 +25,9 @@
 #include "kernel_utils/layout_utils.h"
 #include "kernel_utils/tuple_utils.h"
 #include "include/tensor.h"
-#include "../blcok/block_scheduler_mx_base.h"
-#include "../blcok/quant_matmul_mxfp4_block_mmad_a_full_load.h"
-#include "../blcok/quant_matmul_mxfp4_block_mmad_swat.h"
+#include "../block/block_scheduler_mx_base.h"
+#include "../block/quant_matmul_mxfp4_block_mmad_a_full_load.h"
+#include "../block/quant_matmul_mxfp4_block_mmad_swat.h"
 #include "../utils/quant_matmul_constant.h"
 
 namespace Kernel {
@@ -182,51 +182,6 @@ __aicore__ inline void QuantMatmulMxKernelBaseImpl<QBMM_MX_KERNEL_FUN_TEM_PARAMS
 
         mmadOp_(gmBlockA, gmBlockB, gmBlockScaleA, gmBlockScaleB, gmBlockC, singleShape);
     }
-}
-
-__global__ __aicore__ void QuantMatmulMxfp4BaseKernel(uint64_t m, uint64_t k, uint64_t n,
-        GM_ADDR aGM, GM_ADDR bGM, GM_ADDR aScaleGM, GM_ADDR bScaleGM, GM_ADDR cGM)
-{
-    KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIC_ONLY);
-    using AType = fp4x2_e2m1_t;
-    using BType = fp4x2_e2m1_t;
-    using CType = bfloat16_t;
-
-    using BlockScheduler = Block::QuantMatmulMxLastRoundTileBalanceScheduler;
-    using BlockMmadT = Block::BlockMmadMxAFullLoad<AType, BType, CType>;
-    using ProblemShape = MatmulShape;
-    using QuantMatmulKernelImpl = Kernel::QuantMatmulMxKernelBaseImpl<ProblemShape, BlockMmadT, BlockScheduler>;
-    using Params = typename QuantMatmulKernelImpl::Params;
-
-    constexpr uint32_t BASE_M = 128;
-    constexpr uint32_t BASE_N = 512;
-    constexpr uint32_t BASE_K = 128;
-    constexpr uint32_t PINGPONG_NUM = 2;
-    constexpr uint32_t M_TAIL_TILE = 1;
-    constexpr uint32_t N_TAIL_TILE = 1;
-
-    Params params;
-    params.problemShape.m = static_cast<int64_t>(m);
-    params.problemShape.n = static_cast<int64_t>(n);
-    params.problemShape.k = static_cast<int64_t>(k);
-    params.mmadParams.aGmAddr = aGM;
-    params.mmadParams.bGmAddr = bGM;
-    params.mmadParams.scaleAGmAddr = aScaleGM;
-    params.mmadParams.scaleBGmAddr = bScaleGM;
-    params.mmadParams.cGmAddr = cGM;
-    params.l1Params.kL1 = BASE_K * 2;
-    params.l1Params.scaleKL1 = BASE_K * 2;
-    params.l1Params.l1BufNum = PINGPONG_NUM;
-    params.schParams.baseM = BASE_M;
-    params.schParams.baseN = BASE_N;
-    params.schParams.mTailTile = M_TAIL_TILE;
-    params.schParams.nTailTile = N_TAIL_TILE;
-    params.qbmmParams.baseM = BASE_M;
-    params.qbmmParams.baseN = BASE_N;
-    params.qbmmParams.baseK = BASE_K;
-
-    QuantMatmulKernelImpl impl;
-    impl(params);
 }
 
 } // namespace Kernel

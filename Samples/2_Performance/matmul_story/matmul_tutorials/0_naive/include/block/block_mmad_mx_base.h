@@ -16,15 +16,15 @@
 #else
 #include "kernel_operator.h"
 #endif
-#include "../../../../common/kernel_utils/layout_utils.h"
-#include "../../../../common/kernel_utils/common_utils.h"
-#include "../../../../common/kernel_utils/tuple_utils.h"
+#include "../../../common/kernel_utils/layout_utils.h"
+#include "../../../common/kernel_utils/common_utils.h"
+#include "../../../common/kernel_utils/tuple_utils.h"
 #include "include/tensor.h"
 #include "../utils/quant_matmul_constant.h"
-#include "../../../common/include/tile/tile_mmad_mx.h"
-#include "../../../common/include/tile/copy_scale_l1_to_l0a.h"
-#include "../../../common/include/tile/copy_scale_l1_to_l0b.h"
-#include "../../../common/include/tile/copy_scale_gm_to_l1.h"
+#include "../tile/tile_mmad_mx.h"
+#include "../tile/copy_scale_l1_to_l0a.h"
+#include "../tile/copy_scale_l1_to_l0b.h"
+#include "../tile/copy_scale_gm_to_l1.h"
 
 namespace Block {
 template <class AType_, class BType_, class CType_>

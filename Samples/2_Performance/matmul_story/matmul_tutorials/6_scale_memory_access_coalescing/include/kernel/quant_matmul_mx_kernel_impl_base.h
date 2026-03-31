@@ -25,8 +25,8 @@
 #include "kernel_utils/layout_utils.h"
 #include "kernel_utils/tuple_utils.h"
 #include "include/tensor.h"
-#include "../blcok/block_scheduler_mx_base.h"
-#include "../blcok/block_mmad_mx_base.h"
+#include "../block/block_scheduler_mx_base.h"
+#include "../block/block_mmad_mx_base.h"
 #include "../utils/quant_matmul_constant.h"
 
 namespace Kernel {

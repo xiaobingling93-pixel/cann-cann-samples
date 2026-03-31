@@ -11,7 +11,6 @@
 
 add_executable(matmul main.cpp)
 
-target_include_directories(matmul PRIVATE ${ASCEND_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/tensor_api)
 target_compile_options(matmul PRIVATE
     "-xasc"
     "--npu-arch=dav-3510"
@@ -19,9 +18,9 @@ target_compile_options(matmul PRIVATE
     "-O3"
 )
 
-target_link_libraries(matmul
-    PRIVATE
+target_link_libraries(matmul PRIVATE
     cann_samples::ascend_base
+    cann_samples::tensor_api
 )
 
 install(TARGETS matmul

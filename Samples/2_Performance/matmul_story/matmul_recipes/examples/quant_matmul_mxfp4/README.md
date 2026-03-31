@@ -8,7 +8,7 @@
 
 ## 性能优化指南
 
-关于算子涉及的模板实现及优化策略，请参考[MXFP4量化矩阵乘算子性能优化指南](../../../docs/quant_matmul_mxfp4_performance.md)
+关于算子涉及的模板实现及优化策略，请参考[MXFP4量化矩阵乘算子性能优化指南](../../docs/quant_matmul_mxfp4_performance.md)
 
 ## 支持架构
 
@@ -30,7 +30,7 @@ NPU ARCH 3510
 - `k`：矩阵 A 的列数，同时也是矩阵 B 的行数
 - `n`：矩阵 B 的列数
 
-golden 输入数据由 `matmul_recipes/examples/quant_matmul_mxfp4/gen_data.py` 生成。
+golden 输入数据由 `gen_data.py` 生成。
 
 ## 构建与运行
 

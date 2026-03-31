@@ -25,8 +25,8 @@
 #include "kernel_utils/layout_utils.h"
 #include "kernel_utils/tuple_utils.h"
 #include "include/tensor.h"
-#include "../blcok/block_scheduler_mx_base.h"
-#include "../blcok/block_mmad_mx_base.h"
+#include "../block/block_scheduler_mx_base.h"
+#include "../block/block_mmad_mx_base.h"
 #include "../utils/quant_matmul_constant.h"
 
 namespace Kernel {
@@ -183,7 +183,7 @@ __aicore__ inline void QuantMatmulMxKernelBaseImpl<QBMM_MX_KERNEL_FUN_TEM_PARAMS
     }
 }
 
-__global__ __aicore__ void QuantMatmulMxfp4BaseKernel(uint64_t m, uint64_t k, uint64_t n,
+__global__ __aicore__ __cube__ void QuantMatmulMxfp4BaseKernel(uint64_t m, uint64_t k, uint64_t n,
         GM_ADDR aGM, GM_ADDR bGM, GM_ADDR aScaleGM, GM_ADDR bScaleGM, GM_ADDR cGM)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIC_ONLY);
@@ -203,6 +203,7 @@ __global__ __aicore__ void QuantMatmulMxfp4BaseKernel(uint64_t m, uint64_t k, ui
     constexpr uint32_t PINGPONG_NUM = 2;
     constexpr uint32_t M_TAIL_TILE = 1;
     constexpr uint32_t N_TAIL_TILE = 1;
+    constexpr uint32_t L1_BUFFER_NUM = 3;
 
     Params params;
     params.problemShape.m = static_cast<int64_t>(m);
@@ -213,8 +214,8 @@ __global__ __aicore__ void QuantMatmulMxfp4BaseKernel(uint64_t m, uint64_t k, ui
     params.mmadParams.scaleAGmAddr = aScaleGM;
     params.mmadParams.scaleBGmAddr = bScaleGM;
     params.mmadParams.cGmAddr = cGM;
-    params.l1Params.kL1 = BASE_K * 3;
-    params.l1Params.scaleKL1 = BASE_K * 3;
+    params.l1Params.kL1 = BASE_K * L1_BUFFER_NUM;
+    params.l1Params.scaleKL1 = BASE_K * L1_BUFFER_NUM;
     params.l1Params.l1BufNum = PINGPONG_NUM;
     params.schParams.baseM = BASE_M;
     params.schParams.baseN = BASE_N;

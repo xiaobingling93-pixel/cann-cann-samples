@@ -26,7 +26,7 @@
 #include "acl/acl.h"
 #include "tiling/platform/platform_ascendc.h"
 #include <cstdlib>
-#include "../../common/host_utils/io_utils.h"
+#include "../common/host_utils/io_utils.h"
 #include "include/block/block_mmad_mx_base.h"
 #include "include/block/block_scheduler_mx_base.h"
 #include "include/kernel/quant_matmul_mx_kernel_impl_base.h"
@@ -105,7 +105,7 @@ int main(int argc, char* argv[])
     auto sizeScaleA = static_cast<size_t>(1) * hostScaleA.size() * sizeof(uint8_t);
     auto sizeScaleB = static_cast<size_t>(1) * hostScaleB.size() * sizeof(uint8_t);
     auto sizeOutput = static_cast<size_t>(1) * hostOutput.size() * sizeof(half);
-    // Resolve golden/input|output next to gen_data.py (readlink avoids std::filesystem for older GCC).
+    // Resolve scripts/input|output next to gen_data.py (readlink avoids std::filesystem for older GCC).
     char exePath[PATH_MAX];
     ssize_t len = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
     std::string baseDir = ".";
@@ -120,7 +120,7 @@ int main(int argc, char* argv[])
                 break;
             }
         }
-        baseDir += "/golden";
+        baseDir += "/scripts";
     }
     std::string inputDir = baseDir + "/input";
     std::string outputDir = baseDir + "/output";
@@ -188,11 +188,6 @@ int main(int argc, char* argv[])
 
     WriteFile(outputDir + "/npu_out.bin", hostOutput.data(), sizeOutput);
 
-    std::string cmd = "cd \"" + baseDir + "\" && python3 verify_result.py " + std::to_string(m) + " " +
-                      std::to_string(n);
-    if (std::system(cmd.c_str()) != 0) {
-        return 1;
-    }
     std::cout << std::fixed << std::setprecision(3)
               << "Kernel elapsed time: " << kernelElapsedUs << " us" << std::endl;
     std::cout << "Timing note: event-based timing may be skewed when the NPU is shared. "

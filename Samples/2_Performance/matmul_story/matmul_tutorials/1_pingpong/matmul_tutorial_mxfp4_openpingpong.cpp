@@ -8,12 +8,15 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include <iostream>
-#include <vector>
-#include <cmath>
-#include <memory>
-#include <random>
-#include <filesystem>
+ #include <cmath>
+ #include <iostream>
+ #include <iomanip>
+ #include <limits.h>
+ #include <unistd.h>
+ #include <memory>
+ #include <random>
+ #include <string>
+ #include <vector>
 
 #if ASC_DEVKIT_MAJOR >= 9
 #include "kernel_basic_intf.h"
@@ -22,10 +25,10 @@
 #endif
 #include "acl/acl.h"
 #include "tiling/platform/platform_ascendc.h"
-#include "../../common/host_utils/io_utils.h"
+#include "../common/host_utils/io_utils.h"
 #include "include/kernel/quant_matmul_mx_kernel_impl_base.h"
-#include "include/blcok/block_mmad_mx_base.h"
-#include "include/blcok/block_scheduler_mx_base.h"
+#include "include/block/block_mmad_mx_base.h"
+#include "include/block/block_scheduler_mx_base.h"
 #include "include/utils/quant_matmul_constant.h"
 
 void printUsage(const std::string& programName)
@@ -78,12 +81,11 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    const std::string goldenDir = "Samples/2_Performance/matmul_story/matmul_tutorials/golden";
-    const std::string inputDir = goldenDir + "/input";
-    const std::string outputDir = goldenDir + "/output";
-
     int32_t deviceId = 0;
     aclrtStream stream;
+    aclrtEvent kernelStartEvent = nullptr;
+    aclrtEvent kernelEndEvent = nullptr;
+
     auto ret = aclInit(nullptr);
     CHECK_COND(ret == ACL_SUCCESS, "aclInit failed.");
     ret = aclrtSetDevice(deviceId);
@@ -101,6 +103,25 @@ int main(int argc, char* argv[])
     auto sizeScaleA = static_cast<size_t>(1) * hostScaleA.size() * sizeof(uint8_t);
     auto sizeScaleB = static_cast<size_t>(1) * hostScaleB.size() * sizeof(uint8_t);
     auto sizeOutput = static_cast<size_t>(1) * hostOutput.size() * sizeof(half);
+    // Resolve scripts/input|output next to gen_data.py (readlink avoids std::filesystem for older GCC).
+    char exePath[PATH_MAX];
+    ssize_t len = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
+    std::string baseDir = ".";
+    if (len > 0) {
+        exePath[len] = '\0';
+        baseDir = exePath;
+        for (int up = 0; up < 2; ++up) {
+            size_t lastSlash = baseDir.find_last_of('/');
+            if (lastSlash != std::string::npos && lastSlash > 0) {
+                baseDir.resize(lastSlash);
+            } else {
+                break;
+            }
+        }
+        baseDir += "/scripts";
+    }
+    std::string inputDir = baseDir + "/input";
+    std::string outputDir = baseDir + "/output";
     ReadFile(inputDir + "/input_a.bin", sizeA, hostA.data(), sizeA);
     ReadFile(inputDir + "/input_b.bin", sizeB, hostB.data(), sizeB);
     ReadFile(inputDir + "/input_scaleA.bin", sizeScaleA, hostScaleA.data(), sizeScaleA);
@@ -139,15 +160,51 @@ int main(int argc, char* argv[])
     auto ascendcPlatform = platform_ascendc::PlatformAscendCManager::GetInstance();
     CHECK_COND(ascendcPlatform != nullptr, "get ascendcPlatform failed.");
     uint32_t blockDim = ascendcPlatform->GetCoreNumAic();
-    Kernel::QuantMatmulMxfp4BaseKernel<<<blockDim, nullptr, stream>>>(m, k, n, deviceA, deviceB, deviceScaleA, deviceScaleB, deviceOutput);
+
+    ret = aclrtCreateEvent(&kernelStartEvent);
+    CHECK_COND(ret == ACL_SUCCESS, "Failed to create the start event for kernel timing.");
+    ret = aclrtCreateEvent(&kernelEndEvent);
+    CHECK_COND(ret == ACL_SUCCESS, "Failed to create the end event for kernel timing.");
+    ret = aclrtRecordEvent(kernelStartEvent, stream);
+    CHECK_COND(ret == ACL_SUCCESS, "Failed to record the start event for kernel timing.");
+    Kernel::QuantMatmulMxfp4BaseKernel<<<blockDim, nullptr, stream>>>(
+        m, k, n, deviceA, deviceB, deviceScaleA, deviceScaleB, deviceOutput);
+
+    ret = aclrtRecordEvent(kernelEndEvent, stream);
+    CHECK_COND(ret == ACL_SUCCESS, "Failed to record the end event for kernel timing.");
 
     ret = aclrtSynchronizeStream(stream);
     CHECK_COND(ret == ACL_SUCCESS, "aclrtSynchronizeStream failed.");
+
+    float kernelElapsedMs = 0.0F;
+    ret = aclrtEventElapsedTime(&kernelElapsedMs, kernelStartEvent, kernelEndEvent);
+    CHECK_COND(ret == ACL_SUCCESS, "Failed to query the kernel elapsed time.");
+    double kernelElapsedUs = static_cast<double>(kernelElapsedMs) * 1000.0;
 
     ret = aclrtMemcpy(hostOutput.data(), sizeOutput, deviceOutput, sizeOutput, ACL_MEMCPY_DEVICE_TO_HOST);
     CHECK_COND(ret == ACL_SUCCESS, "aclrtMemcpy deviceOutput failed.");
 
     WriteFile(outputDir + "/npu_out.bin", hostOutput.data(), sizeOutput);
+
+    std::string cmd = "cd \"" + baseDir + "\" && python3 verify_result.py " + std::to_string(m) + " " +
+                      std::to_string(n);
+    if (std::system(cmd.c_str()) != 0) {
+        return 1;
+    }
+    std::cout << std::fixed << std::setprecision(3)
+              << "Kernel elapsed time: " << kernelElapsedUs << " us" << std::endl;
+    std::cout << "Timing note: event-based timing may be skewed when the NPU is shared. "
+                 "If the device is not exclusively owned, or the reported time is unstable, "
+                 "use the `msprof` command for precise profiling."
+              << std::endl;
+    if (kernelEndEvent != nullptr) {
+        aclrtDestroyEvent(kernelEndEvent);
+        kernelEndEvent = nullptr;
+    }
+    if (kernelStartEvent != nullptr) {
+        aclrtDestroyEvent(kernelStartEvent);
+        kernelStartEvent = nullptr;
+    }
     aclrtDestroyStream(stream);
     aclrtResetDevice(deviceId);
     aclFinalize();

@@ -4,22 +4,31 @@
 
 ```
 matmul_story/
-├── common/                                     # 公共工具函数与验证脚本
-├── docs/                                       # 性能优化技术文档
+├── CMakeLists.txt
+├── README.md
 ├── matmul_recipes/                             # 算子实现与示例代码
-│   ├── include/                                # 头文件 (block, kernel, policy, utils)
+│   ├── CMakeLists.txt
+│   ├── README.md
+│   ├── common/                                 # 公共工具函数（host/kernel）
+│   ├── include/                                # 头文件 (block, kernel, policy, tile, tiling, utils)
+│   ├── docs/                                   # 性能优化技术文档
 │   └── examples/                               # 算子示例目录
 │       ├── quant_matmul_mxfp4/                 # MXFP4 量化矩阵乘示例
-│       │   ├── quant_matmul_mxfp4_swat.cpp               # SWAT模板Host侧实现（非全载）
-│       │   ├── quant_matmul_mxfp4_a_full_load.cpp        # SWAT模板Host侧实现（A全载）
-│       │   └── README.md                       # 示例说明文档
-│       ├── ...                                 # 其他算子示例
 │       └── matmul_a16w16/                      # A16W16 非量化矩阵乘示例
 └── matmul_tutorials/                           # 分步教程（细目见 matmul_tutorials/README.md）
+    ├── CMakeLists.txt
+    ├── README.md
+    ├── common/                                 # 教程共享工具函数与 tile 头文件
+    ├── images/                                 # 教程流水截图
+    ├── scripts/                                # 数据生成与验证脚本
     ├── 0_naive/                                # Step 0 基准
-    ├── 3_block_swat/                           # Step 3 SWAT
-    ├── 4_last_round_tile_balance/              # Step 4 尾轮负载均衡
-    └── 5_unit_flag/                            # Step 5 UnitFlag
+    ├── 1_pingpong/                             # Step 1 打开 Ping-Pong
+    ├── 2_block_swat/                           # Step 2 SWAT
+    ├── 3_last_round_tile_balance/              # Step 3 尾轮负载均衡
+    ├── 4_unit_flag/                            # Step 4 UnitFlag
+    ├── 5_halfl1_ping_halfl1_pong/              # Step 5 Half-L1 Ping/Half-L1 Pong
+    ├── 6_scale_memory_access_coalescing/       # Step 6 Scale 访存合并优化
+    └── 7_fullload/                             # Step 7 A 全载
 ```
 
 ## 概述

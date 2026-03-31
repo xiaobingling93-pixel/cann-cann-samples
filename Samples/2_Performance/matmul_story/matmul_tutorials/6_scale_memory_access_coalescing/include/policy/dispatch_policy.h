@@ -24,7 +24,7 @@ struct KernelMultiBlockOnKAxisWithScale {};
 /**
  * @struct QuantMatmulMxMultiBlockWithSwat
  * @brief Matrix multiplication with scaleA and scaleB
- * @param [in] SingleCoreShape: the shape of a single core, default is AscendC::Shape<_0, _0, _0>
+ * @param [in] FULL_LOAD_MODE_: fulload mark, default is 0. 0 is non-fullload, and 1 is fullload.
  */
 template <uint64_t FULL_LOAD_MODE_ = 0>
 struct QuantMatmulMxMultiBlockWithSwat {

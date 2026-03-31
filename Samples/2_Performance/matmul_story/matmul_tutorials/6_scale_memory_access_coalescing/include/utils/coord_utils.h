@@ -16,7 +16,7 @@
 #ifndef UTILS_COORD_UTILS_H
 #define UTILS_COORD_UTILS_H
 
-#include "../../../../common/kernel_utils/common_utils.h"
+#include "../../../common/kernel_utils/common_utils.h"
 #include "quant_matmul_constant.h"
 
 constexpr int IDX_M_BASE_NORM_CNT = 0;

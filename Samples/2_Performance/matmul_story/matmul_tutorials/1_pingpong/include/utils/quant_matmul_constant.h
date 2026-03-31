@@ -46,5 +46,6 @@ constexpr static uint64_t NONE_FULL_LOAD_MODE = 0UL;
 constexpr static uint64_t A_FULL_LOAD_MODE = 1UL;
 constexpr int64_t DOUBLE_BUFFER_COUNT = 2LL;
 constexpr int64_t OFFSET_4_8 = 2LL;
+constexpr int64_t L1_FOUR_BUFFER = 4LL;
 
 #endif
