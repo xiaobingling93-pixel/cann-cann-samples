@@ -81,23 +81,23 @@ cd build_out/2_Performance/matmul_story/matmul_recipes/examples/quant_matmul_mxf
 ### 1. 生成测试数据
 
 ```bash
-python3 gen_data.py 256 256 256
+python3 gen_data.py 16 2048 16384
 ```
 
 ### 2. 运行单个算法样例
 
 ```bash
-./quant_matmul_mxfp4_swat 256 256 256
+./quant_matmul_mxfp4_swat 16 2048 16384
 ```
 
 或：
 
 ```bash
-./quant_matmul_mxfp4_a_full_load 256 256 256
+./quant_matmul_mxfp4_a_full_load 16 2048 16384
 ```
 
 ### 3. 运行算法推荐脚本
 
 ```bash
-python3 quant_matmul_mxfp4_algorithm_recommend.py 256 256 256
+python3 quant_matmul_mxfp4_algorithm_recommend.py 16 2048 16384
 ```
