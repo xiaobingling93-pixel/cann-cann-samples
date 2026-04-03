@@ -51,16 +51,30 @@ inline T FloorAlign(T a, T b)
     return a / b * b;
 }
 
-template <typename T>
-T GetShapeWithDataTypeFP4(T size)
+enum class DataType {
+    FP4,
+    FP8
+};
+
+
+template <DataType dataType, typename T>
+constexpr T GetShapeWithDataType(T size)
 {
-    return size << 1;
+    if constexpr (dataType == DataType::FP4) {
+        return size << 1;
+    } else {
+        return size;
+    }
 }
 
-template <typename T>
-T GetSizeWithDataTypeFP4(T shape)
+template <DataType dataType, typename T>
+constexpr T GetSizeWithDataType(T shape)
 {
-    return (shape + 1) >> 1;
+    if constexpr (dataType == DataType::FP4) {
+        return (shape + 1) >> 1;
+    } else {
+        return shape;
+    }
 }
 
 #endif // COMMON_UTILS_H

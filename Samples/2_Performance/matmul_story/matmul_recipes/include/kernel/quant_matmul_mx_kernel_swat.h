@@ -9,12 +9,12 @@
  */
 
 /*!
- * \file quant_matmul_mxfp4_kernel_swat.h
- * \brief Kernel-side SWAT MXFP4 implementation for the non-full-load path.
+ * \file quant_matmul_mx_kernel_swat.h
+ * \brief Kernel-side SWAT MX implementation for the non-full-load path.
  */
 
-#ifndef QUANT_MATMUL_MXFP4_KERNEL_SWAT_H
-#define QUANT_MATMUL_MXFP4_KERNEL_SWAT_H
+#ifndef QUANT_MATMUL_MX_KERNEL_SWAT_H
+#define QUANT_MATMUL_MX_KERNEL_SWAT_H
 
 #if ASC_DEVKIT_MAJOR >= 9
 #include "kernel_basic_intf.h"
@@ -28,8 +28,8 @@
 #include "kernel_utils/tuple_utils.h"
 #include "include/tensor.h"
 
-#include "../block/quant_matmul_mxfp4_block_mmad_swat.h"
-#include "../block/quant_matmul_mxfp4_block_scheduler_swat.h"
+#include "../block/quant_matmul_mx_block_mmad_swat.h"
+#include "../block/quant_matmul_mx_block_scheduler_swat.h"
 #include "../utils/quant_matmul_constant.h"
 
 namespace Kernel {

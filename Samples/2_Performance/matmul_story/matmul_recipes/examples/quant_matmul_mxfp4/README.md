@@ -27,7 +27,7 @@ NPU ARCH 3510
 
 ## 性能优化指南
 
-关于算子涉及的模板实现及优化策略，请参考[MXFP4量化矩阵乘算子性能优化指南](../../../docs/quant_matmul_mxfp4_performance.md)。
+关于算子涉及的模板实现及优化策略，请参考[MX量化矩阵乘算子性能优化指南](../../../docs/quant_matmul_mx_performance.md)
 
 ## API参考
 

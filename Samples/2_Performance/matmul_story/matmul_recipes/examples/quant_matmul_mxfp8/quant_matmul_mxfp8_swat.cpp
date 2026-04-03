@@ -9,13 +9,14 @@
  */
 
 /*!
- * \file quant_matmul_mxfp4_a_full_load.cpp
- * \brief Sample launcher for the MXFP4 SWAT A-full-load example.
+ * \file quant_matmul_mxfp8_swat.cpp
+ * \brief Sample launcher for the MXFP8 SWAT streaming example.
  */
 
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
+#include <iomanip>
 #include <iostream>
 #include <limits.h>
 #include <memory>
@@ -29,11 +30,11 @@
 #include "block/block_scheduler_policy.h"
 #include "host_utils/common_utils.h"
 #include "host_utils/io_utils.h"
-#include "kernel/quant_matmul_mx_kernel_a_full_load.h"
-#include "tiling/quant_matmul_mx_tiling_a_full_load.h"
+#include "kernel/quant_matmul_mx_kernel_swat.h"
+#include "tiling/quant_matmul_mx_tiling_swat.h"
 #include "tiling/quant_matmul_tiling_data.h"
 
-__global__ __aicore__ void QuantMatmulMxfp4AFullLoadKernel(
+__global__ __aicore__ void QuantMatmulMxfp8SwatKernel(
     GM_ADDR dA, GM_ADDR dB, GM_ADDR dScaleA, GM_ADDR dScaleB, GM_ADDR dC,
     const QuantMatmulTilingData quantMatmulTilingData)
 {
@@ -41,26 +42,25 @@ __global__ __aicore__ void QuantMatmulMxfp4AFullLoadKernel(
 
     // Keep the sample explicit about the datatype/layout combination that this
     // executable demonstrates so host tiling and kernel traits stay in sync.
-    using AType = fp4x2_e2m1_t;
-    using BType = fp4x2_e2m1_t;
+    using AType = fp8_e4m3fn_t;
+    using BType = fp8_e4m3fn_t;
     using CType = bfloat16_t;
 
     using layoutA = layout::RowMajor;
     using layoutB = layout::ColumnMajor;
     using layoutC = layout::RowMajor;
-    using BlockScheduler = QuantMatmulMxSwatScheduler<SWAT_A_FULL_LOAD_MODE>;
+
+    using BlockScheduler = QuantMatmulMxSwatScheduler<SWAT_NO_FULL_LOAD_MODE>;
     using DispatchPolicy =
-        QuantMatmulMxMultiBlockWithSwat<AscendC::Shape<_0, _0, _0, _0>, SWAT_A_FULL_LOAD_MODE>;
-    using BlockMmad = Block::BlockMmadMxAFullLoad<
+        QuantMatmulMxMultiBlockWithSwat<AscendC::Shape<_0, _0, _0, _0>, SWAT_NO_FULL_LOAD_MODE>;
+    using BlockMmad = Block::BlockMmadMxSwat<
         DispatchPolicy, AType, layoutA, BType, layoutB, CType, layoutC>;
     using ProblemShape = MatmulShape;
     using QuantMatmulKernelImpl =
-        Kernel::QuantMatmulMxKernelAFullLoad<ProblemShape, BlockMmad, BlockScheduler>;
+        Kernel::QuantMatmulMxKernelSwat<ProblemShape, BlockMmad, BlockScheduler>;
 
     using Params = typename QuantMatmulKernelImpl::Params;
     using QBMMTiling = typename QuantMatmulKernelImpl::QBMMTiling;
-    // Translate the serialized host tiling data into the strongly typed kernel
-    // parameter bundle expected by the device-side implementation.
     QBMMTiling qbmmParams{quantMatmulTilingData.baseM, quantMatmulTilingData.baseN, quantMatmulTilingData.baseK,
                           quantMatmulTilingData.dbL0c};
     Params params = {
@@ -117,10 +117,6 @@ void ParseArguments(int argc, char* argv[], uint64_t& m, uint64_t& k, uint64_t& 
     m = ParsePositiveUint64(argv[1], "m");
     k = ParsePositiveUint64(argv[2], "k");
     n = ParsePositiveUint64(argv[3], "n");
-
-    if (k % 2 != 0) {
-        throw std::invalid_argument("ERROR: k must be an even number");
-    }
 }
 
 }
@@ -140,9 +136,19 @@ int main(int argc, char* argv[])
 
     constexpr int32_t deviceId = 0;
     aclrtStream stream = nullptr;
+    aclrtEvent kernelStartEvent = nullptr;
+    aclrtEvent kernelEndEvent = nullptr;
     bool aclInitialized = false;
     bool deviceSet = false;
     auto cleanupAcl = [&]() {
+        if (kernelEndEvent != nullptr) {
+            aclrtDestroyEvent(kernelEndEvent);
+            kernelEndEvent = nullptr;
+        }
+        if (kernelStartEvent != nullptr) {
+            aclrtDestroyEvent(kernelStartEvent);
+            kernelStartEvent = nullptr;
+        }
         if (stream != nullptr) {
             aclrtDestroyStream(stream);
             stream = nullptr;
@@ -159,9 +165,7 @@ int main(int argc, char* argv[])
 
     try {
         QuantMatmulTilingData tilingData;
-        // Host tiling picks the block shape, tail strategy, and buffering plan
-        // that will later be consumed by the device kernel.
-        QuantMatmulTilingAFullLoad<DataType::FP4, DataType::FP4> tilingEngine;
+        QuantMatmulTilingSwat<DataType::FP8, DataType::FP8> tilingEngine;
         tilingEngine.GetTilingData(m, n, k, tilingData);
 
         uint32_t deviceCount = 0;
@@ -172,9 +176,14 @@ int main(int argc, char* argv[])
         CHECK_COND(aclrtSetDevice(deviceId) == ACL_SUCCESS, "Failed to set the ACL device.");
         deviceSet = true;
         CHECK_COND(aclrtCreateStream(&stream) == ACL_SUCCESS, "Failed to create the ACL stream.");
+        CHECK_COND(aclrtCreateEvent(&kernelStartEvent) == ACL_SUCCESS,
+                  "Failed to create the start event for kernel timing.");
+        CHECK_COND(aclrtCreateEvent(&kernelEndEvent) == ACL_SUCCESS,
+                  "Failed to create the end event for kernel timing.");
 
-        uint64_t sizeA = ((m * k) >> 1) * sizeof(uint8_t);
-        uint64_t sizeB = ((k * n) >> 1) * sizeof(uint8_t);
+        // MXFP8 stores one element per byte.
+        uint64_t sizeA = (m * k) * sizeof(uint8_t);
+        uint64_t sizeB = (k * n) * sizeof(uint8_t);
         uint64_t sizeScaleA = (m * CeilDiv(k, TILING_MXFP_DIVISOR_SIZE) * TILING_MXFP_MULTI_BASE_SIZE) * sizeof(uint8_t);
         uint64_t sizeScaleB = (n * CeilDiv(k, TILING_MXFP_DIVISOR_SIZE) * TILING_MXFP_MULTI_BASE_SIZE) * sizeof(uint8_t);
         uint64_t sizeC = m * n * sizeof(half);
@@ -183,8 +192,6 @@ int main(int argc, char* argv[])
         ssize_t len = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
         std::string baseDir = ".";
         if (len > 0) {
-            // Keep all example assets next to the installed executable so the
-            // launcher, generator, and verifier agree on one local layout.
             exePath[len] = '\0';
             baseDir = exePath;
             size_t lastSlash = baseDir.find_last_of('/');
@@ -260,11 +267,15 @@ int main(int argc, char* argv[])
         CHECK_COND(
             aclrtMemcpyAsync(dScaleB, sizeScaleB, hScaleB, sizeScaleB, ACL_MEMCPY_HOST_TO_DEVICE, stream) == ACL_SUCCESS,
             "Failed to copy scaleB from host to device.");
+        CHECK_COND(
+            aclrtRecordEvent(kernelStartEvent, stream) == ACL_SUCCESS,
+            "Failed to record the start event for kernel timing.");
 
-        // Launch exactly the number of AICs requested by the tiling result so
-        // scheduler-side load balancing and runtime launch geometry match.
-        QuantMatmulMxfp4AFullLoadKernel<<<tilingData.usedCoreNum, nullptr, stream>>>(
+        QuantMatmulMxfp8SwatKernel<<<tilingData.usedCoreNum, nullptr, stream>>>(
             dA, dB, dScaleA, dScaleB, dC, tilingData);
+        CHECK_COND(
+            aclrtRecordEvent(kernelEndEvent, stream) == ACL_SUCCESS,
+            "Failed to record the end event for kernel timing.");
 
         CHECK_COND(
             aclrtMemcpyAsync(hC, sizeC, dC, sizeC, ACL_MEMCPY_DEVICE_TO_HOST, stream) == ACL_SUCCESS,
@@ -272,6 +283,11 @@ int main(int argc, char* argv[])
         CHECK_COND(
             aclrtSynchronizeStream(stream) == ACL_SUCCESS,
             "Failed to synchronize the ACL stream after kernel execution.");
+        float kernelElapsedMs = 0.0F;
+        CHECK_COND(
+            aclrtEventElapsedTime(&kernelElapsedMs, kernelStartEvent, kernelEndEvent) == ACL_SUCCESS,
+            "Failed to query the kernel elapsed time.");
+        double kernelElapsedUs = static_cast<double>(kernelElapsedMs) * 1000.0;
 
         WriteFile(outputDir + "/npu_out.bin", hC, sizeC);
         std::string cmd = "cd \"" + baseDir + "\" && python3 verify_result.py " + std::to_string(m) + " " +
@@ -280,6 +296,11 @@ int main(int argc, char* argv[])
             cleanupAcl();
             return 1;
         }
+        std::cout << std::fixed << std::setprecision(3)
+                  << "[Profiling] Kernel elapsed time: " << kernelElapsedUs << " us" << std::endl;
+        std::cout << "[Profiling Note] Event timing may be affected by NPU contention. "
+                     "Use `msprof` for precise profiling."
+                  << std::endl;
         cleanupAcl();
         return 0;
     } catch (const std::exception& e) {

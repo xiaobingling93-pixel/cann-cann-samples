@@ -9,19 +9,26 @@
  */
 
 /*!
- * \file quant_matmul_mxfp4_tiling_a_full_load.h
- * \brief SWAT tiling specialization for the MXFP4 A-full-load path.
+ * \file quant_matmul_mx_tiling_a_full_load.h
+ * \brief SWAT tiling specialization for the MX A-full-load path.
  */
 
-#ifndef QUANT_MATMUL_TILING_A_FULL_LOAD_H
-#define QUANT_MATMUL_TILING_A_FULL_LOAD_H
+#ifndef QUANT_MATMUL_MX_TILING_A_FULL_LOAD_H
+#define QUANT_MATMUL_MX_TILING_A_FULL_LOAD_H
 
 #include "quant_matmul_tiling_base.h"
 
-class QuantMatmulTilingAFullLoad : public QuantMatmulTilingBase {
+template <DataType aDataType, DataType bDataType>
+class QuantMatmulTilingAFullLoad : public QuantMatmulTilingBase<aDataType, bDataType> {
 public:
     QuantMatmulTilingAFullLoad() = default;
     ~QuantMatmulTilingAFullLoad() override = default;
+
+private:
+    using Base = QuantMatmulTilingBase<aDataType, bDataType>;
+    using Base::args_;
+    using Base::platformInfo_;
+    using Base::runInfo_;
 
 protected:
     const char* TilingName() const override
@@ -132,10 +139,11 @@ private:
         // remaining L1 budget to determine B depth and scale reuse.
         runInfo_.stepKa = CeilDiv(args_.k, runInfo_.baseK);
 
-        uint64_t aL1Size = GetSizeWithDataTypeFP4(runInfo_.baseM * Align(args_.k, FP4_C0_SIZE));
+        uint64_t aL1Size =
+            GetSizeWithDataType<aDataType>(runInfo_.baseM * Align(args_.k, aDataType == DataType::FP4 ? FP4_C0_SIZE : FP8_C0_SIZE));
         runInfo_.scaleFactorA = 1U;
         uint64_t leftL1Size = platformInfo_.l1Size - aL1Size;
-        uint64_t bL0Size = GetSizeWithDataTypeFP4(runInfo_.baseN * runInfo_.baseK);
+        uint64_t bL0Size = GetSizeWithDataType<bDataType>(runInfo_.baseN * runInfo_.baseK);
         uint64_t scaleAL1Size =
             runInfo_.baseM * Align(CeilDiv(args_.k, MX_GROUP_SIZE), TILING_MXFP_MULTI_BASE_SIZE);
 
@@ -151,11 +159,11 @@ private:
         // only the remaining capacity can be traded between B ping-pong buffers.
         uint64_t stepK = std::min(runInfo_.stepKa, runInfo_.stepKb);
         uint64_t kL1 = stepK * runInfo_.baseK;
-        uint64_t usedL1Size = GetSizeWithDataTypeFP4(runInfo_.baseN * kL1) * L1_FOUR_BUFFER;
+        uint64_t usedL1Size = GetSizeWithDataType<bDataType>(runInfo_.baseN * kL1) * L1_FOUR_BUFFER;
         usedL1Size += runInfo_.baseN * CeilDiv(static_cast<uint64_t>(scaleKL1), MX_GROUP_SIZE) * DB_SIZE;
         uint64_t scaleK = CeilDiv(args_.k, TILING_MXFP_DIVISOR_SIZE) * TILING_MXFP_MULTI_BASE_SIZE;
         uint64_t kAligned = Align(args_.k, TILING_MXFP_DIVISOR_SIZE);
-        usedL1Size += GetSizeWithDataTypeFP4(runInfo_.baseM * kAligned) + runInfo_.baseM * scaleK;
+        usedL1Size += GetSizeWithDataType<aDataType>(runInfo_.baseM * kAligned) + runInfo_.baseM * scaleK;
         return static_cast<uint8_t>(usedL1Size < platformInfo_.l1Size ? L1_FOUR_BUFFER : DB_SIZE);
     }
 
@@ -203,7 +211,7 @@ private:
         }
 
         uint64_t kAlignValue = Align(args_.k, BASIC_BLOCK_SIZE_256);
-        uint64_t kMaxValue = GetShapeWithDataTypeFP4(platformInfo_.l0aSize / DB_SIZE) / std::max(tempBaseM, tempBaseN);
+        uint64_t kMaxValue = GetShapeWithDataType<aDataType>(platformInfo_.l0aSize / DB_SIZE) / std::max(tempBaseM, tempBaseN);
         kMaxValue = FloorAlign(kMaxValue, BASIC_BLOCK_SIZE_256);
         if (kMaxValue >= BASIC_BLOCK_SIZE_256) {
             runInfo_.baseM = tempBaseM;
@@ -220,7 +228,7 @@ private:
         // the tail statistics used by later scheduling decisions.
         runInfo_.baseM = Align(std::min(args_.m, BASIC_BLOCK_SIZE_256), CUBE_BLOCK);
         runInfo_.baseN = Align(std::min(args_.n, BASIC_BLOCK_SIZE_256), CUBE_BLOCK);
-        runInfo_.baseK = Align(std::min(args_.k, BASIC_BLOCK_SIZE_256), TILING_MXFP_DIVISOR_SIZE);
+        runInfo_.baseK = Align(std::min(args_.k, aDataType == DataType::FP4 ? BASIC_BLOCK_SIZE_256 : BASIC_BLOCK_SIZE_128), TILING_MXFP_DIVISOR_SIZE);
 
         uint64_t blockNum = CeilDiv(args_.m, runInfo_.baseM) * CeilDiv(args_.n, runInfo_.baseN);
         if (blockNum < platformInfo_.aicNum) {
@@ -246,7 +254,7 @@ private:
             return;
         }
         uint64_t mTailSize = args_.m % runInfo_.baseM;
-        bool isInnerAxisAlign = GetSizeWithDataTypeFP4(args_.k) % MTE2_CACHELINE_SIZE == 0UL;
+        bool isInnerAxisAlign = GetSizeWithDataType<aDataType>(args_.k) % MTE2_CACHELINE_SIZE == 0UL;
         if (mTailSize > 0UL && isInnerAxisAlign) {
             uint64_t baseTailCntMax = std::min((runInfo_.baseM - mTailSize) / BASIC_BLOCK_SIZE_16, runInfo_.mBlockCnt);
             uint64_t windowSize = std::min(WINDOW_LEN, runInfo_.mBlockCnt);
@@ -276,23 +284,24 @@ private:
         // of L1 and can be reused across multiple N blocks.
         uint64_t maxBaseMSize = runInfo_.mBaseTailSplitCnt == 1UL ? runInfo_.baseM : runInfo_.mTailMain;
         return runInfo_.mBlockCnt <= WINDOW_LEN && platformInfo_.aicNum % runInfo_.mBlockCnt == 0 &&
-               GetSizeWithDataTypeFP4(maxBaseMSize * Align(args_.k, FP4_C0_SIZE)) <= platformInfo_.l1Size / NUM_TWO &&
+               GetSizeWithDataType<aDataType>(maxBaseMSize * Align(args_.k, aDataType == DataType::FP4 ? FP4_C0_SIZE : FP8_C0_SIZE)) <=
+                   platformInfo_.l1Size / NUM_TWO &&
                runInfo_.totalBlockCnt > platformInfo_.aicNum;
     }
 
-    static uint64_t GetDepthB1AFullLoad(const QuantMatmulArgs& args, const QuantMatmulRunInfo& runInfo,
+    uint64_t GetDepthB1AFullLoad(const QuantMatmulArgs& args, const QuantMatmulRunInfo& runInfo,
                                         uint64_t leftSize)
     {
         // Build the B-side depth in multiples of the base K tile while
         // respecting both DMA granularity and the remaining L1 capacity.
         uint64_t baseStepK = 1UL;
-        uint64_t baseKSize = GetSizeWithDataTypeFP4(runInfo.baseK);
+        uint64_t baseKSize = GetSizeWithDataType<bDataType>(runInfo.baseK);
         if (baseKSize < BASIC_BLOCK_SIZE_128) {
             baseStepK = CeilDiv(BASIC_BLOCK_SIZE_128, baseKSize);
         }
 
         uint64_t scaleBaseK = Align(CeilDiv(runInfo.baseK, MX_GROUP_SIZE), TILING_MXFP_MULTI_BASE_SIZE);
-        uint64_t baseSize = GetSizeWithDataTypeFP4(runInfo.baseN * (runInfo.baseK + scaleBaseK) * baseStepK);
+        uint64_t baseSize = GetSizeWithDataType<bDataType>(runInfo.baseN * (runInfo.baseK + scaleBaseK) * baseStepK);
         uint64_t stepKBaseScale = 1UL;
         if (leftSize >= MTE2_MIN_LOAD_SIZE * DB_SIZE) {
             stepKBaseScale = CeilDiv(MTE2_MIN_LOAD_SIZE, baseSize);
@@ -311,7 +320,7 @@ private:
         return baseStepK;
     }
 
-    static uint64_t GetScaleFactorBAFullLoad(const QuantMatmulArgs& args, const QuantMatmulRunInfo& runInfo,
+    uint64_t GetScaleFactorBAFullLoad(const QuantMatmulArgs& args, const QuantMatmulRunInfo& runInfo,
                                              uint64_t leftSize)
     {
         // After B tiles are placed in L1, scaleB can reuse whatever capacity is
@@ -344,4 +353,4 @@ private:
     }
 };
 
-#endif // QUANT_MATMUL_TILING_A_FULL_LOAD_H
+#endif // QUANT_MATMUL_MX_TILING_A_FULL_LOAD_H

@@ -24,8 +24,10 @@
 #include "quant_matmul_tiling_common.h"
 #include "quant_matmul_tiling_data.h"
 
+template <DataType aDataType, DataType bDataType>
 class QuantMatmulTilingBase {
 public:
+    QuantMatmulTilingBase() = default;
     virtual ~QuantMatmulTilingBase() = default;
 
     void GetTilingData(uint64_t m, uint64_t n, uint64_t k, QuantMatmulTilingData& tilingData)

@@ -1,39 +1,54 @@
-# MXFP4量化矩阵乘算子性能优化指南
+# MX量化矩阵乘算子性能优化指南
 
 ## 概述
 
-本文档系统阐述MXFP4量化矩阵乘算子的实现原理、性能建模方法及优化实践。通过系统性的优化策略，帮助开发者快速掌握算子性能调优的核心技术，提升算子在昇腾平台上的执行效率。
+本文档系统阐述MX量化矩阵乘算子的实现原理、性能建模方法及优化实践，覆盖MXFP4与MXFP8场景。通过系统性的优化策略，帮助开发者快速掌握算子性能调优的核心技术，提升算子在昇腾平台上的执行效率。
 
 ## 算子实现原理
 
 ### 算子功能说明
 
-- **算子功能**：实现MXFP4类型的矩阵乘计算。MX量化等价于GroupSize=32、Scale类型为float8_e8m0的FP4 PerGroup量化，通过4位浮点数量化显著减少内存访问量，提升计算密度。相比传统的FP16/BF16格式，MXFP4可减少75%的内存占用，同时通过硬件加速保持较高的计算精度。
-
-- **应用场景**：MXFP4量化矩阵乘特别适用于大语言模型（LLM）的推理场景，如Transformer架构中的注意力计算和前馈网络计算，在保持模型精度的同时显著提升推理吞吐量。
+- **算子功能**：
+  | 对比项 | MXFP8 | MXFP4 |
+  | - | - | - |
+  | A/B数据类型 | `float8_e4m3fn` | `float4_e2m1` / `float4_e1m2` |
+  | 量化方式 | GroupSize=32的pergroup量化 | GroupSize=32的pergroup量化 |
+  | scaleA/B数据类型 | `float8_e8m0` | `float8_e8m0` |
+  | 显存压缩比 | 相比 FP16/BF16 内存占用减少约 50% | 相比 FP16/BF16 内存占用减少约 75% |
+  | 典型应用场景 | 模型训练，兼顾训练速度与精度的平衡 | 模型推理，侧重极致显存效率与推理速度 |
 
 - **计算公式**：
 $$
-c_{_{i, j}} = \sum^{K/G-1}_{g=0}\left(scaleA_{g, i} \cdot scaleB_{g, j} \cdot \sum^{G-1}_{k'=0} (a_{i, gG+k'} \cdot b_{gG + k', j}) \right)
+c_{i, j} = \sum^{K/G-1}_{g=0}\left(scaleA_{g, i} \cdot scaleB_{g, j} \cdot \sum^{G-1}_{k'=0} (a_{i, gG+k'} \cdot b_{gG + k', j}) \right)
 $$
 
-- **参数说明**：
+#### MXFP4参数说明
 
 | **变量名** | **描述** | **Dtype** | **Layout** | **Shape** |
 |-|-|-|-|-|
-| a | 输入左矩阵 | `float4_e2m1` 或者 `float4_e1m2` | ND | (m, k) |
-| b | 输入右矩阵 | `float4_e2m1` 或者 `float4_e1m2` | ND | (n, k) |
+| a | 输入左矩阵 | `float4_e2m1` 或 `float4_e1m2` | ND | (m, k) |
+| b | 输入右矩阵 | `float4_e2m1` 或 `float4_e1m2` | ND | (n, k) |
 | scaleA | 左矩阵量化参数 | `float8_e8m0` | ND | (m, ceil(k/64), 2) |
 | scaleB | 右矩阵量化参数 | `float8_e8m0` | ND | (n, ceil(k/64), 2) |
-| c | 输出矩阵 | `float32` 或者 `float16` 或者 `bfloat16` | ND | (m, n) |
+| c | 输出矩阵 | `float32` 或 `float16` 或 `bfloat16` | ND | (m, n) |
+
+#### MXFP8参数说明
+
+| **变量名** | **描述** | **Dtype** | **Layout** | **Shape** |
+|-|-|-|-|-|
+| a | 输入左矩阵 | `float8_e4m3fn` | ND | (m, k) |
+| b | 输入右矩阵 | `float8_e4m3fn` | ND | (n, k) |
+| scaleA | 左矩阵量化参数 | `float8_e8m0` | ND | (m, ceil(k/64), 2) |
+| scaleB | 右矩阵量化参数 | `float8_e8m0` | ND | (n, ceil(k/64), 2) |
+| c | 输出矩阵 | `float32` 或 `float16` 或 `bfloat16` | ND | (m, n) |
 
 ### 算子实现说明
 
-与传统非量化Matmul算子相比，MXFP4场景新增了输入变量`scaleA`和`scaleB`，需要将其搬运至L1缓冲区，再搬运至`L0A_MX`和`L0B_MX`独立缓冲区。
+与传统非量化Matmul算子相比，MX量化场景新增了输入变量`scaleA`和`scaleB`，需要将其搬运至L1缓冲区，再搬运至`L0A_MX`和`L0B_MX`独立缓冲区。
 
-通过约束`L0A`、`L0B`、`L0A_MX`、`L0B_MX`中Tensor的地址映射关系，芯片的`MMAD`指令支持自动计算MXFP4矩阵乘，并将`Float32`结果写入`L0C`缓冲区。通过设置`Fixpipe`指令的量化模式，输出预期的数据类型结果。**因此算子实现仅依赖CUBE核，不涉及MIX场景**。
+通过约束`L0A`、`L0B`、`L0A_MX`、`L0B_MX`中Tensor的地址映射关系，芯片的`MMAD`指令支持自动计算MXFP4/MXFP8矩阵乘，并将`Float32`结果写入`L0C`缓冲区。通过设置`Fixpipe`指令的量化模式，输出预期的数据类型结果。**因此算子实现仅依赖CUBE核，不涉及MIX场景**。
 
-MXFP4执行时的完整数据搬运流程如下图所示：
+MX量化场景矩阵乘执行时的完整数据搬运流程如下图所示：
 
 <div align="center">
   <img src="images/image23.png" width="800" />
@@ -58,6 +73,8 @@ MXFP4执行时的完整数据搬运流程如下图所示：
     <img src="images/image24.png" width="1500" />
   </div>
 
+> 图示以MXFP4为例，图片中标注的`K0 = 64`表示在该示例中沿K轴按64对齐后的最小分块进行组织，对于MXFP8场景`K0 = 32`。
+
 #### Tensor b 的搬运说明
 
 | **缓冲区变化** | **Shape排布变化** | **Layout变化** | **所属流水** | **所用指令** |
@@ -71,9 +88,11 @@ MXFP4执行时的完整数据搬运流程如下图所示：
     <img src="images/image25.png" width="1500" />
   </div>
 
+> 图示同样以MXFP4为例，`K0 = 64`仅用于说明分形排布与指令搬运的最小K轴粒度，对于MXFP8场景`K0 = 32`。
+
 #### Tensor scaleA 的搬运说明
 
-> 因为MX量化GroupSize=32的pergroup量化，因此K方向的大小是输入矩阵的1/32。这里描述的是Scale张量的分组与存储布局，输入侧仅要求`k`为偶数。
+> 因为MX量化GroupSize=32的pergroup量化，因此K方向的大小是输入矩阵的1/32。这里描述的是Scale张量的分组与存储布局，输入侧仅要求MXFP4场景下`k`为偶数。
 
 | **缓冲区变化** | **Shape排布变化** | **Layout变化** | **所属流水** | **所用指令** |
 |-|-|-|-|-|
@@ -86,7 +105,7 @@ MXFP4执行时的完整数据搬运流程如下图所示：
 
 #### Tensor scaleB 的搬运说明
 
-> 因为MX量化GroupSize=32的pergroup量化，因此K方向的大小是输入矩阵的1/32。这里描述的是Scale张量的分组与存储布局，输入侧仅要求`k`为偶数。
+> 因为MX量化GroupSize=32的pergroup量化，因此K方向的大小是输入矩阵的1/32。这里描述的是Scale张量的分组与存储布局，输入侧仅要求MXFP4场景下`k`为偶数。
 
 | **缓冲区变化** | **Shape排布变化** | **Layout变化** | **所属流水** | **所用指令** |
 |-|-|-|-|-|
@@ -99,6 +118,8 @@ MXFP4执行时的完整数据搬运流程如下图所示：
 
 ### 算子实现约束
 
+#### MX量化场景共性约束
+
 1. **K维度对齐约束**：由于scale在L0_MX缓冲区上的最小分形为`(16, 2)`，对应输入矩阵在K方向的最小单位为64，要求**baseK是64的整数倍**。
 
 2. **K维度补零处理**：基于约束1，当K轴非64对齐时，存在两类场景：
@@ -107,17 +128,19 @@ MXFP4执行时的完整数据搬运流程如下图所示：
 
       推荐补零方法：使用`SET2D`对L1缓冲区目标地址清零 + `ND2NZ`跳写目标地址。
 
-3. **数据类型处理**：由于`ND2NZ`指令不支持`B4`数据类型，需将输入按`B8`数据类型进行搬运，相应指令的`stride`和`shape`配置均需除以2。
+3. **指令约束**：`MMAD`指令需关闭`gemv`功能。
 
-4. **内轴对齐约束**：基于约束3，要求输入矩阵内轴为偶数，否则无法用2个`B4`拼成一个`B8`类型。
+#### MXFP4场景特性约束
 
-5. **指令约束**：`MMAD`指令需关闭`gemv`功能。
+1. **数据类型处理（MXFP4量化场景）**：对于MXFP4量化场景，由于`ND2NZ`指令不支持`B4`数据类型，需将输入按`B8`数据类型进行搬运，相应指令的`stride`和`shape`配置均需除以2。
+
+2. **内轴对齐约束（MXFP4量化场景）**：对于MXFP4量化场景，基于约束3，要求输入矩阵内轴为偶数，否则无法用2个`B4`拼成一个`B8`类型。
 
 ## 算子性能建模
 
 ### 性能瓶颈分析
 
-MXFP4矩阵乘算子的性能瓶颈主要分为以下两类：
+MX量化矩阵乘算子的性能瓶颈主要分为以下两类：
 
 1. **Cube Bound**：算子性能受限于硬件的算力规格，本身已经实现连续的MMAD计算。这种场景通常意味着算子性能已经最优，但需要重点关注**多核计算负载是否均衡**，避免出现单核Cube Bound，但整体Cube利用率偏低的情况。
 
@@ -133,13 +156,15 @@ MXFP4矩阵乘算子的性能瓶颈主要分为以下两类：
 
 #### 流水理论耗时评估
 
+> 说明：以下公式统一采用`16 × C0 × 16`表示Cube核每拍计算量。其中，MXFP8场景下`C0 = 32`，MXFP4场景下`C0 = 64`。
+
 **1. MMAD计算时间**
 
 $$
-T_{cube} = \frac{M \times K \times N}{16 \times 64 \times 16 \times 核数 \times 频率}
+T_{cube} = \frac{M \times K \times N}{16 \times C0 \times 16 \times 核数 \times 频率}
 $$
 
-其中`16 × 64 × 16`表示MXFP4在Cube核上每拍的计算量。
+其中`16 × C0 × 16`表示MX量化在Cube核上每拍的计算量。
 
 **2. MTE2搬运时间**
 
@@ -180,13 +205,13 @@ $$
 **1. MTE2 VS MMAD**
 
 $$
-\frac{M \times K \times N}{16 \times 64 \times 16 \times 核数 \times 频率} \geq \frac{(M \times \frac{N}{baseN} + N \times \frac{M}{baseM}) \times K \times (1 \times sizeof(dtype) + \frac{1}{32})}{BandWidth_{mte2}}
+\frac{M \times K \times N}{16 \times C0 \times 16 \times 核数 \times 频率} \geq \frac{(M \times \frac{N}{baseN} + N \times \frac{M}{baseM}) \times K \times (1 \times sizeof(dtype) + \frac{1}{32})}{BandWidth_{mte2}}
 $$
 
 化简后得到MTE2 Bound条件：
 
 $$
-BandWidth_{mte2} \geq (\frac{1}{baseN} + \frac{1}{baseM}) \times (1 \times sizeof(dtype) + \frac{1}{32}) \times 16 \times 64 \times 16 \times 核数 \times 频率
+BandWidth_{mte2} \geq (\frac{1}{baseN} + \frac{1}{baseM}) \times (1 \times sizeof(dtype) + \frac{1}{32}) \times 16 \times C0 \times 16 \times 核数 \times 频率
 $$
 
 **特征分析**：
@@ -200,19 +225,19 @@ $$
 由于MTE1和MMAD均为Cube核内部流水，因此可以将公式化简到单核内对比：
 
 $$
-\frac{baseM \times baseK \times baseN}{16 \times 64 \times 16 \times 频率} \geq \frac{baseM \times baseK \times (1 \times sizeof(dtype) + \frac{1}{32})}{BandWidth_{L{0}A}} + \frac{baseN \times baseK \times (1 \times sizeof(dtype) + \frac{1}{32})}{BandWidth_{L{0}B}}
+\frac{baseM \times baseK \times baseN}{16 \times C0 \times 16 \times 频率} \geq \frac{baseM \times baseK \times (1 \times sizeof(dtype) + \frac{1}{32})}{BandWidth_{L{0}A}} + \frac{baseN \times baseK \times (1 \times sizeof(dtype) + \frac{1}{32})}{BandWidth_{L{0}B}}
 $$
 
 化简后得到MTE1 Bound条件：
 
 $$
-\frac{baseM \times baseN}{16 \times 64 \times 16 \times 频率} \geq \frac{baseM \times (1 \times sizeof(dtype) + \frac{1}{32})}{BandWidth_{L{0}A}} + \frac{baseN \times (1 \times sizeof(dtype) + \frac{1}{32})}{BandWidth_{L{0}B}}
+\frac{baseM \times baseN}{16 \times C0 \times 16 \times 频率} \geq \frac{baseM \times (1 \times sizeof(dtype) + \frac{1}{32})}{BandWidth_{L{0}A}} + \frac{baseN \times (1 \times sizeof(dtype) + \frac{1}{32})}{BandWidth_{L{0}B}}
 $$
 
 当L0A和L0B的带宽一致时，可进一步化简：
 
 $$
-BandWidth_{mte1} \geq (\frac{1}{baseN} + \frac{1}{baseM}) \times (1 \times sizeof(dtype) + \frac{1}{32}) \times 16 \times 64 \times 16 \times 频率
+BandWidth_{mte1} \geq (\frac{1}{baseN} + \frac{1}{baseM}) \times (1 \times sizeof(dtype) + \frac{1}{32}) \times 16 \times C0 \times 16 \times 频率
 $$
 
 **特征分析**：
@@ -224,13 +249,13 @@ $$
 **3. FIXPIPE VS MMAD**
 
 $$
-\frac{M \times K \times N}{16 \times 64 \times 16 \times 核数 \times 频率} \geq \frac{M \times N \times sizeof(dtype)}{BandWidth_{fixp}}
+\frac{M \times K \times N}{16 \times C0 \times 16 \times 核数 \times 频率} \geq \frac{M \times N \times sizeof(dtype)}{BandWidth_{fixp}}
 $$
 
 化简后得到FIXPIPE Bound条件：
 
 $$
-BandWidth_{fixp} \geq \frac{16 \times 64 \times 16 \times 核数 \times 频率 \times sizeof(dtype)}{K}
+BandWidth_{fixp} \geq \frac{16 \times C0 \times 16 \times 核数 \times 频率 \times sizeof(dtype)}{K}
 $$
 
 **特征分析**：
@@ -409,8 +434,12 @@ $$
   - Double Buffer：隐藏内存访问延迟，提升流水线并行度
   - UnitFlag：提升计算与搬出流水并行度
 
-- **模板实现（非A全载）**：[quant_matmul_mxfp4_swat.cpp](../matmul_recipes/examples/quant_matmul_mxfp4/quant_matmul_mxfp4_swat.cpp)
-- **模板实现（A全载）**：[quant_matmul_mxfp4_a_full_load.cpp](../matmul_recipes/examples/quant_matmul_mxfp4/quant_matmul_mxfp4_a_full_load.cpp)
+- **模板实现（非A全载）**：
+  - MXFP4: [quant_matmul_mxfp4_swat.cpp](../matmul_recipes/examples/quant_matmul_mxfp4/quant_matmul_mxfp4_swat.cpp)
+  - MXFP8: [quant_matmul_mxfp8_swat.cpp](../matmul_recipes/examples/quant_matmul_mxfp8/quant_matmul_mxfp8_swat.cpp)
+- **模板实现（A全载）**：
+  - MXFP4: [quant_matmul_mxfp4_a_full_load.cpp](../matmul_recipes/examples/quant_matmul_mxfp4/quant_matmul_mxfp4_a_full_load.cpp)
+  - MXFP8: [quant_matmul_mxfp8_a_full_load.cpp](../matmul_recipes/examples/quant_matmul_mxfp8/quant_matmul_mxfp8_a_full_load.cpp)
 
 ### FullLoad模板
 
@@ -461,4 +490,4 @@ $$
 
 ## 总结
 
-MXFP4量化矩阵乘算子的性能优化是一个系统性的工程，需要根据具体的场景和瓶颈选择合适的优化策略。通过合理应用SWAT、Double Buffer、UnitFlag等优化技术，可以显著提升算子在昇腾平台上的执行效率。
+MX量化矩阵乘算子的性能优化是一个系统性的工程，需要根据具体的场景和瓶颈选择合适的优化策略。通过合理应用SWAT、Double Buffer、UnitFlag等优化技术，可以显著提升算子在昇腾平台上的执行效率。

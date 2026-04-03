@@ -30,6 +30,7 @@ constexpr uint64_t NUM_TWO = 2UL;
 constexpr uint64_t WINDOW_LEN = 4UL;
 constexpr uint64_t CUBE_BLOCK = 16UL;
 constexpr uint64_t FP4_C0_SIZE = 64UL;
+constexpr uint64_t FP8_C0_SIZE = 32UL;
 constexpr uint64_t BASEK_LIMIT = 4095UL;
 constexpr uint64_t DATA_SIZE_L0C = 4UL;
 constexpr uint64_t MX_GROUP_SIZE = 32UL;

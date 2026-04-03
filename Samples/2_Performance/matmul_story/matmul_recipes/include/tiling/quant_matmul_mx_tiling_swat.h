@@ -9,19 +9,26 @@
  */
 
 /*!
- * \file quant_matmul_mxfp4_tiling_swat.h
- * \brief SWAT tiling specialization for the MXFP4 non-full-load path.
+ * \file quant_matmul_mx_tiling_swat.h
+ * \brief SWAT tiling specialization for the MX non-full-load path.
  */
 
-#ifndef QUANT_MATMUL_TILING_SWAT_H
-#define QUANT_MATMUL_TILING_SWAT_H
+#ifndef QUANT_MATMUL_MX_TILING_SWAT_H
+#define QUANT_MATMUL_MX_TILING_SWAT_H
 
 #include "quant_matmul_tiling_base.h"
 
-class QuantMatmulTilingSwat : public QuantMatmulTilingBase {
+template <DataType aDataType, DataType bDataType>
+class QuantMatmulTilingSwat : public QuantMatmulTilingBase<aDataType, bDataType> {
 public:
     QuantMatmulTilingSwat() = default;
     ~QuantMatmulTilingSwat() override = default;
+
+private:
+    using Base = QuantMatmulTilingBase<aDataType, bDataType>;
+    using Base::args_;
+    using Base::platformInfo_;
+    using Base::runInfo_;
 
 protected:
     const char* TilingName() const override
@@ -76,9 +83,9 @@ private:
         // back to double buffering if the combined A/B/scale footprint is too large.
         uint64_t stepK = std::min(runInfo_.stepKa, runInfo_.stepKb);
         uint64_t kL1 = stepK * runInfo_.baseK;
-        uint64_t usedL1Size = GetSizeWithDataTypeFP4(runInfo_.baseN * kL1) * L1_FOUR_BUFFER;
+        uint64_t usedL1Size = GetSizeWithDataType<bDataType>(runInfo_.baseN * kL1) * L1_FOUR_BUFFER;
         usedL1Size += runInfo_.baseN * CeilDiv(static_cast<uint64_t>(scaleKL1), MX_GROUP_SIZE) * DB_SIZE;
-        usedL1Size += GetSizeWithDataTypeFP4(runInfo_.baseM * kL1) * L1_FOUR_BUFFER;
+        usedL1Size += GetSizeWithDataType<aDataType>(runInfo_.baseM * kL1) * L1_FOUR_BUFFER;
         usedL1Size += runInfo_.baseM * CeilDiv(static_cast<uint64_t>(scaleKL1), MX_GROUP_SIZE) * DB_SIZE;
         return static_cast<uint8_t>(usedL1Size < platformInfo_.l1Size ? L1_FOUR_BUFFER : DB_SIZE);
     }
@@ -154,8 +161,8 @@ private:
     {
         // This path allocates A, B, scaleA, and scaleB symmetrically, so it
         // first searches a shared depth and then refines A/B independently.
-        uint64_t baseASize = GetSizeWithDataTypeFP4(runInfo_.baseM * runInfo_.baseK);
-        uint64_t baseBSize = GetSizeWithDataTypeFP4(runInfo_.baseN * runInfo_.baseK);
+        uint64_t baseASize = GetSizeWithDataType<aDataType>(runInfo_.baseM * runInfo_.baseK);
+        uint64_t baseBSize = GetSizeWithDataType<bDataType>(runInfo_.baseN * runInfo_.baseK);
 
         uint64_t baseScaleASize =
             Align(CeilDiv(runInfo_.baseK, MX_GROUP_SIZE), TILING_MXFP_MULTI_BASE_SIZE) * runInfo_.baseM;
@@ -224,7 +231,7 @@ private:
         }
 
         uint64_t kAlignValue = Align(args_.k, BASIC_BLOCK_SIZE_256);
-        uint64_t kMaxValue = GetShapeWithDataTypeFP4(platformInfo_.l0aSize / DB_SIZE) / std::max(tempBaseM, tempBaseN);
+        uint64_t kMaxValue = GetShapeWithDataType<aDataType>(platformInfo_.l0aSize / DB_SIZE) / std::max(tempBaseM, tempBaseN);
         kMaxValue = FloorAlign(kMaxValue, BASIC_BLOCK_SIZE_256);
         if (kMaxValue >= BASIC_BLOCK_SIZE_256) {
             runInfo_.baseM = tempBaseM;
@@ -241,7 +248,7 @@ private:
         // the tail statistics used by later scheduling decisions.
         runInfo_.baseM = Align(std::min(args_.m, BASIC_BLOCK_SIZE_256), CUBE_BLOCK);
         runInfo_.baseN = Align(std::min(args_.n, BASIC_BLOCK_SIZE_256), CUBE_BLOCK);
-        runInfo_.baseK = Align(std::min(args_.k, BASIC_BLOCK_SIZE_256), TILING_MXFP_DIVISOR_SIZE);
+        runInfo_.baseK = Align(std::min(args_.k, aDataType == DataType::FP4 ? BASIC_BLOCK_SIZE_256 : BASIC_BLOCK_SIZE_128), TILING_MXFP_DIVISOR_SIZE);
 
         uint64_t blockNum = CeilDiv(args_.m, runInfo_.baseM) * CeilDiv(args_.n, runInfo_.baseN);
         if (blockNum < platformInfo_.aicNum) {
@@ -267,7 +274,7 @@ private:
             return;
         }
         uint64_t mTailSize = args_.m % runInfo_.baseM;
-        bool isInnerAxisAlign = GetSizeWithDataTypeFP4(args_.k) % MTE2_CACHELINE_SIZE == 0UL;
+        bool isInnerAxisAlign = GetSizeWithDataType<aDataType>(args_.k) % MTE2_CACHELINE_SIZE == 0UL;
         if (mTailSize > 0UL && isInnerAxisAlign) {
             uint64_t baseTailCntMax = std::min((runInfo_.baseM - mTailSize) / BASIC_BLOCK_SIZE_16, runInfo_.mBlockCnt);
             uint64_t windowSize = std::min(WINDOW_LEN, runInfo_.mBlockCnt);
@@ -297,16 +304,17 @@ private:
         // path can report whether the shape would have supported A residency.
         uint64_t maxBaseMSize = runInfo_.mBaseTailSplitCnt == 1UL ? runInfo_.baseM : runInfo_.mTailMain;
         return runInfo_.mBlockCnt <= WINDOW_LEN && platformInfo_.aicNum % runInfo_.mBlockCnt == 0 &&
-               GetSizeWithDataTypeFP4(maxBaseMSize * Align(args_.k, FP4_C0_SIZE)) <= platformInfo_.l1Size / NUM_TWO &&
+               GetSizeWithDataType<aDataType>(maxBaseMSize * Align(args_.k, aDataType == DataType::FP4 ? FP4_C0_SIZE : FP8_C0_SIZE)) <=
+                   platformInfo_.l1Size / NUM_TWO &&
                runInfo_.totalBlockCnt > platformInfo_.aicNum;
     }
 
-    static uint64_t CalUsedCoreNum(const QuantMatmulRunInfo& runInfo, uint64_t mTile, uint64_t nTile)
+    uint64_t CalUsedCoreNum(const QuantMatmulRunInfo& runInfo, uint64_t mTile, uint64_t nTile)
     {
         return mTile * nTile * runInfo.tailBlockCnt;
     }
 
-    static uint64_t GetDepthA1B1(const QuantMatmulRunInfo& runInfo, uint64_t leftSize, uint64_t perDepthSize,
+    uint64_t GetDepthA1B1(const QuantMatmulRunInfo& runInfo, uint64_t leftSize, uint64_t perDepthSize,
                                  uint64_t depthInit)
     {
         // The first pass grows by powers of two to find a feasible region; the
@@ -316,7 +324,7 @@ private:
         }
         uint64_t depthScale = leftSize / perDepthSize;
         if (depthInit > 1UL) {
-            uint64_t baseKSize = GetSizeWithDataTypeFP4(runInfo.baseK);
+            uint64_t baseKSize = GetSizeWithDataType<aDataType>(runInfo.baseK);
             while ((depthScale * baseKSize) % BASIC_BLOCK_SIZE_512 != 0UL &&
                    (depthScale * baseKSize) > BASIC_BLOCK_SIZE_512) {
                 depthScale -= 1UL;
@@ -337,7 +345,7 @@ private:
         return depthInit * depthScale;
     }
 
-    static void CalStepKs(const QuantMatmulArgs& args, QuantMatmulRunInfo& runInfo)
+    void CalStepKs(const QuantMatmulArgs& args, QuantMatmulRunInfo& runInfo)
     {
         // Convert L1 depth to step-K counts and keep A/B synchronized so both
         // sides advance through K with the same outer scheduling cadence.
@@ -366,7 +374,7 @@ private:
         runInfo.depthB1 = runInfo.stepKb * DB_SIZE;
     }
 
-    static void CalScaleFactors(const QuantMatmulArgs& args, const QuantMatmulPlatformInfo& platformInfo,
+    void CalScaleFactors(const QuantMatmulArgs& args, const QuantMatmulPlatformInfo& platformInfo,
                                 QuantMatmulRunInfo& runInfo, uint64_t baseASize, uint64_t baseBSize,
                                 uint64_t baseScaleASize, uint64_t baseScaleBSize)
     {
@@ -404,4 +412,4 @@ private:
     }
 };
 
-#endif // QUANT_MATMUL_TILING_SWAT_H
+#endif // QUANT_MATMUL_MX_TILING_SWAT_H

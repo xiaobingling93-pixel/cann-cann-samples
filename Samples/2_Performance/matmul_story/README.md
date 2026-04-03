@@ -43,6 +43,12 @@ matmul_story/
 
 - [matmul_a16w16](./matmul_recipes/examples/matmul_a16w16/README.md)：A16W16 非量化矩阵乘算子优化实践
 - [quant_matmul_mxfp4](./matmul_recipes/examples/quant_matmul_mxfp4/README.md)：MXFP4 量化矩阵乘算子优化实践
+- [quant_matmul_mxfp8](./matmul_recipes/examples/quant_matmul_mxfp8/README.md)：MXFP8 量化矩阵乘算子优化实践
+
+## 优化指南
+
+- [quant_matmul_mx_performance](./docs/quant_matmul_mx_performance.md)：MX量化场景矩阵乘算子性能优化指南
+
 
 ## 分步教程
 

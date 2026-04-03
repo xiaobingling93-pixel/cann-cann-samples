@@ -29,8 +29,8 @@
 #include "block/block_scheduler_policy.h"
 #include "host_utils/common_utils.h"
 #include "host_utils/io_utils.h"
-#include "kernel/quant_matmul_mxfp4_kernel_swat.h"
-#include "tiling/quant_matmul_mxfp4_tiling_swat.h"
+#include "kernel/quant_matmul_mx_kernel_swat.h"
+#include "tiling/quant_matmul_mx_tiling_swat.h"
 #include "tiling/quant_matmul_tiling_data.h"
 
 __global__ __aicore__ void QuantMatmulMxfp4SwatKernel(
@@ -48,14 +48,12 @@ __global__ __aicore__ void QuantMatmulMxfp4SwatKernel(
     using layoutA = layout::RowMajor;
     using layoutB = layout::ColumnMajor;
     using layoutC = layout::RowMajor;
-    using L1TileShape = AscendC::Shape<_0, _0, _0>;
-    using L0TileShape = AscendC::Shape<_0, _0, _0>;
 
     using BlockScheduler = QuantMatmulMxSwatScheduler<SWAT_NO_FULL_LOAD_MODE>;
     using DispatchPolicy =
         QuantMatmulMxMultiBlockWithSwat<AscendC::Shape<_0, _0, _0, _0>, SWAT_NO_FULL_LOAD_MODE>;
     using BlockMmad = Block::BlockMmadMxSwat<
-        DispatchPolicy, L1TileShape, L0TileShape, AType, layoutA, BType, layoutB, CType, layoutC>;
+        DispatchPolicy, AType, layoutA, BType, layoutB, CType, layoutC>;
     using ProblemShape = MatmulShape;
     using QuantMatmulKernelImpl =
         Kernel::QuantMatmulMxKernelSwat<ProblemShape, BlockMmad, BlockScheduler>;
@@ -164,8 +162,8 @@ int main(int argc, char* argv[])
         QuantMatmulTilingData tilingData;
         // Host tiling picks the block shape, tail strategy, and buffering plan
         // that will later be consumed by the device kernel.
-        std::unique_ptr<QuantMatmulTilingBase> tilingEngine = std::make_unique<QuantMatmulTilingSwat>();
-        tilingEngine->GetTilingData(m, n, k, tilingData);
+        QuantMatmulTilingSwat<DataType::FP4, DataType::FP4> tilingEngine;
+        tilingEngine.GetTilingData(m, n, k, tilingData);
 
         uint32_t deviceCount = 0;
         CHECK_COND(aclrtGetDeviceCount(&deviceCount) == ACL_SUCCESS, "Failed to query ACL device count.");
@@ -176,11 +174,11 @@ int main(int argc, char* argv[])
         deviceSet = true;
         CHECK_COND(aclrtCreateStream(&stream) == ACL_SUCCESS, "Failed to create the ACL stream.");
 
-        size_t sizeA = ((m * k) >> 1) * sizeof(uint8_t);
-        size_t sizeB = ((k * n) >> 1) * sizeof(uint8_t);
-        size_t sizeScaleA = (m * CeilDiv(k, TILING_MXFP_DIVISOR_SIZE) * TILING_MXFP_MULTI_BASE_SIZE) * sizeof(uint8_t);
-        size_t sizeScaleB = (n * CeilDiv(k, TILING_MXFP_DIVISOR_SIZE) * TILING_MXFP_MULTI_BASE_SIZE) * sizeof(uint8_t);
-        size_t sizeC = m * n * sizeof(half);
+        uint64_t sizeA = ((m * k) >> 1) * sizeof(uint8_t);
+        uint64_t sizeB = ((k * n) >> 1) * sizeof(uint8_t);
+        uint64_t sizeScaleA = (m * CeilDiv(k, TILING_MXFP_DIVISOR_SIZE) * TILING_MXFP_MULTI_BASE_SIZE) * sizeof(uint8_t);
+        uint64_t sizeScaleB = (n * CeilDiv(k, TILING_MXFP_DIVISOR_SIZE) * TILING_MXFP_MULTI_BASE_SIZE) * sizeof(uint8_t);
+        uint64_t sizeC = m * n * sizeof(half);
 
         char exePath[PATH_MAX];
         ssize_t len = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);

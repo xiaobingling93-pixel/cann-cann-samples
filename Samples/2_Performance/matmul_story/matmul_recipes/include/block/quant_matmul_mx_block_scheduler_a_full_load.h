@@ -9,12 +9,12 @@
  */
 
 /*!
- * \file quant_matmul_mxfp4_block_scheduler_swat.h
- * \brief SWAT block scheduler for the MXFP4 non-full-load path.
+ * \file quant_matmul_mx_block_scheduler_a_full_load.h
+ * \brief SWAT block scheduler for the MX A-full-load path.
  */
 
-#ifndef QUANT_MATMUL_MXFP4_BLOCK_SCHEDULER_SWAT_H
-#define QUANT_MATMUL_MXFP4_BLOCK_SCHEDULER_SWAT_H
+#ifndef QUANT_MATMUL_MX_BLOCK_SCHEDULER_A_FULL_LOAD_H
+#define QUANT_MATMUL_MX_BLOCK_SCHEDULER_A_FULL_LOAD_H
 
 #include "kernel_utils/common_utils.h"
 
@@ -23,7 +23,7 @@
 namespace Block {
 
 template <class ProblemShape_, bool TransA_, bool TransB_>
-class BlockSchedulerQuantMatmulMxSwat {
+class BlockSchedulerQuantMatmulMxAFullLoad {
 public:
     int64_t m_{0};
     int64_t n_{0};
@@ -39,18 +39,14 @@ public:
     int64_t nBaseTailMain_{0};
     int64_t mBaseTailLast_{0};
     int64_t nBaseTailLast_{0};
-    int64_t mCoreNum_{0};
-    int64_t mTailCoreNum_{0};
     int64_t blockIdx_{AscendC::GetBlockIdx() / AscendC::GetTaskRation()};
     int64_t blockNum_{AscendC::GetBlockNum()};
-    int64_t startBlockIdx_{0};
     int64_t endBlockIdx_{0};
     int64_t roundIdx_{0};
     int64_t round_{0};
     int64_t mTailTile_{1};
     int64_t nTailTile_{1};
     int64_t totalTailTile_{1};
-    int64_t mainRow_{0};
 
     using BlockShape = AscendC::Shape<int64_t, int64_t, int64_t, int64_t>;
     using BlockCoord = AscendC::Coord<int64_t, int64_t, int64_t, int64_t>;
@@ -69,13 +65,11 @@ public:
         int64_t nTailMain;
     };
 
-    const int64_t WINDOW_LEN = 4;
-
 public:
-    __aicore__ inline BlockSchedulerQuantMatmulMxSwat(const ProblemShape& shape, const Params& params)
+    __aicore__ inline BlockSchedulerQuantMatmulMxAFullLoad(const ProblemShape& shape, const Params& params)
     {
-        // Pre-compute the serpentine row windows used by the non-full-load path
-        // to improve N-axis balance when many rows share the same K stream.
+        // Pre-compute the steady-state and tail tile geometry once so the hot
+        // scheduling loop only needs light index arithmetic.
         m_ = shape.m;
         n_ = shape.n;
         k_ = shape.k;
@@ -84,16 +78,13 @@ public:
         mCnt_ = CeilDiv(m_, baseM_);
         nCnt_ = CeilDiv(n_, baseN_);
         totalCnt_ = mCnt_ * nCnt_;
-        mCoreNum_ = Min(WINDOW_LEN, mCnt_);
-        mainRow_ = mCnt_ / mCoreNum_ - 1;
-        mTailCoreNum_ = mCnt_ - mCoreNum_ * mainRow_;
         endBlockIdx_ = (totalCnt_ - 1) % blockNum_;
         round_ = CeilDiv(totalCnt_, blockNum_);
         if (blockIdx_ > endBlockIdx_) {
             round_ -= 1;
         }
         // Apply host-selected tail splitting during construction so the
-        // scheduler is ready to serve tiles immediately after instantiation.
+        // scheduler is fully initialized before the first tile query.
         if ((endBlockIdx_ + 1) * params.mTailTile * params.nTailTile <= AscendC::GetBlockNum()) {
             mTailTile_ = params.mTailTile;
             nTailTile_ = params.nTailTile;
@@ -149,12 +140,12 @@ public:
         int64_t singleCoreMSplit = CeilDiv(singleCoreM, mTailTile_);
         int64_t singleCoreNSplit = CeilDiv(singleCoreN, nTailTile_);
         int64_t mSplitIdx = (blockIdx_ % totalTailTile_) % mTailTile_;
-        int64_t nSplitIdx = (blockIdx_ % totalTailTile_) / mTailTile_;
+        int64_t nSplitIdx = blockIdx_ / mCnt_ % nTailTile_;
         int64_t mSplitAddrOffset = mSplitIdx * singleCoreMSplit;
         int64_t nSplitAddrOffset = nSplitIdx * singleCoreNSplit;
         if (mSplitAddrOffset >= singleCoreM || nSplitAddrOffset >= singleCoreN) {
-            // Synthetic sub-tiles that fall completely outside the true edge
-            // tile are turned into empty work items and skipped by the caller.
+            // Some synthetic tail slices may fall outside the valid range when
+            // the edge tile is smaller than the requested split grid.
             return {0, 0, 0, 0};
         }
         singleCoreM = Min(singleCoreM - mSplitAddrOffset, singleCoreMSplit);
@@ -168,36 +159,12 @@ public:
             return false;
         }
 
-        // The non-full-load path uses a serpentine traversal so neighboring
-        // rows do not all hit the same N-side tail pattern at once.
+        // A-full-load keeps each core on a fixed M tile and advances N across
+        // rounds so the resident A tile can be reused as long as possible.
         int64_t curRoundIdx = roundIdx_;
-        int64_t newBlockIdx = (curRoundIdx == round_ - 1) ? blockIdx_ / totalTailTile_ : blockIdx_;
-        int64_t tileIdx = newBlockIdx + curRoundIdx * blockNum_;
-        if (blockIdx_ < startBlockIdx_) {
-            tileIdx += blockNum_ - startBlockIdx_;
-        } else if (endBlockIdx_ + 1 >= totalTailTile_ * totalCnt_) {
-            // When tail splitting consumes all remaining blocks, normalize the
-            // traversal back into the original logical tile space.
-            tileIdx -= startBlockIdx_ / totalTailTile_;
-        } else {
-            tileIdx -= startBlockIdx_;
-        }
-
-        int64_t rowIdx = tileIdx / nCnt_ / mCoreNum_;
-        int64_t mTileIdx = 0;
-        int64_t nTileIdx = 0;
-        if (rowIdx < mainRow_) {
-            mTileIdx = rowIdx * mCoreNum_ + tileIdx % mCoreNum_;
-            nTileIdx = (tileIdx / mCoreNum_) % nCnt_;
-        } else {
-            rowIdx = mainRow_;
-            int64_t tailIdx = tileIdx - mainRow_ * mCoreNum_ * nCnt_;
-            mTileIdx = mainRow_ * mCoreNum_ + tailIdx % mTailCoreNum_;
-            nTileIdx = (tailIdx / mTailCoreNum_) % nCnt_;
-        }
-        if (rowIdx & 1) {
-            nTileIdx = nCnt_ - 1 - nTileIdx;
-        }
+        int64_t mTileIdx = blockIdx_ % mCnt_;
+        int64_t curNTailTile = (curRoundIdx == round_ - 1) ? nTailTile_ : 1;
+        int64_t nTileIdx = curRoundIdx * blockNum_ / mCnt_ % nCnt_ + blockIdx_ / mCnt_ / curNTailTile;
 
         int64_t singleCoreM = mTileIdx >= mBaseNormCnt_ ? (mTileIdx < mCnt_ - 1 ? mBaseTailMain_ : mBaseTailLast_)
                                                         : baseM_;
@@ -209,7 +176,7 @@ public:
             int64_t singleCoreMSplit = CeilDiv(singleCoreM, mTailTile_);
             int64_t singleCoreNSplit = CeilDiv(singleCoreN, nTailTile_);
             int64_t mSplitIdx = (blockIdx_ % totalTailTile_) % mTailTile_;
-            int64_t nSplitIdx = (blockIdx_ % totalTailTile_) / mTailTile_;
+            int64_t nSplitIdx = blockIdx_ / mCnt_ % nTailTile_;
             mSplitAddrOffset = mSplitIdx * singleCoreMSplit;
             nSplitAddrOffset = nSplitIdx * singleCoreNSplit;
         }
@@ -236,8 +203,8 @@ public:
 };
 
 template <class ProblemShape_, bool TransA_, bool TransB_>
-struct BlockSchedulerSelector<ProblemShape_, QuantMatmulMxSwatScheduler<>, TransA_, TransB_> {
-    using SchedulerOp = BlockSchedulerQuantMatmulMxSwat<ProblemShape_, TransA_, TransB_>;
+struct BlockSchedulerSelector<ProblemShape_, QuantMatmulMxSwatScheduler<SWAT_A_FULL_LOAD_MODE>, TransA_, TransB_> {
+    using SchedulerOp = BlockSchedulerQuantMatmulMxAFullLoad<ProblemShape_, TransA_, TransB_>;
 };
 
 } // namespace Block

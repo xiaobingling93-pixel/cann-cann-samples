@@ -100,8 +100,6 @@ def parse_arguments(argv: List[str]) -> tuple[int, int, int]:
     m = parse_positive_uint64(argv[1], "m")
     k = parse_positive_uint64(argv[2], "k")
     n = parse_positive_uint64(argv[3], "n")
-    if k % 2 != 0:
-        raise ValueError("k must be an even number")
     return m, k, n
 
 
