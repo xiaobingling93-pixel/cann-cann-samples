@@ -24,9 +24,39 @@
 - `matmul_tutorial_mxfp4_memery_access_coalescing`（Step 6）
 - `matmul_tutorial_mxfp4_a_fullload`（Step 7）
 
-## 构建与运行
+## 一键运行（推荐）
 
-在仓库根目录执行编译安装，并进入教程安装目录：
+仓库提供 `scripts/run.sh`，可一键串联 **构建 → 数据生成 → 算子执行 → 结果校验** 全流程。
+建议先进入 `matmul_tutorials/` 目录再执行：
+
+```bash
+cd Samples/2_Performance/matmul_story/matmul_tutorials
+
+# 指定 Step 运行
+bash scripts/run.sh --target matmul_tutorial_mxfp4_swat 256 256 256
+
+# 自动构建 + 未指定 target 时运行 Step 0（matmul_tutorial_mxfp4_base）
+bash scripts/run.sh 256 256 256
+
+# 跳过构建阶段
+bash scripts/run.sh --target matmul_tutorial_mxfp4_swat_balance --skip-build 256 256 256
+
+# 查看完整帮助
+bash scripts/run.sh --help
+```
+
+### run.sh 参数说明
+
+| 参数 | 说明 |
+|------|------|
+| `m k n` | 矩阵维度（必填）。`k` 须为偶数。 |
+| `--target <name>` | 指定要运行的教程可执行文件名；省略时默认 Step 0（`matmul_tutorial_mxfp4_base`） |
+| `--skip-build` | 跳过构建/安装阶段，复用已有 `build_out`。 |
+| `-h, --help` | 显示帮助信息。 |
+
+## 手动构建与运行
+
+如需手动控制各步骤，在仓库根目录执行编译安装，并进入教程安装目录：
 
 ```bash
 cmake -S . -B build
@@ -43,12 +73,7 @@ python3 gen_data.py 256 256 256
 
 # 2) 运行某个 Step（示例：Step 2）
 ./matmul_tutorial_mxfp4_swat 256 256 256
-
-# 3) 结果校验（若可执行文件未自动校验，可手动执行）
-python3 verify_result.py 256 256
 ```
-
-> 调用约定：教程程序以自身所在目录作为工作目录，读写 `./input` 和 `./output`，并在该目录下调用 `verify_result.py`。
 
 ## 相关文档
 

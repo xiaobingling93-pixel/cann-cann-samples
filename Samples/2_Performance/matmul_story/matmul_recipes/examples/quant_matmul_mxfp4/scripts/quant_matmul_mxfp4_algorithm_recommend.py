@@ -16,7 +16,7 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 
 MSPROF_OUTPUT_DIR_NAME = "msprof_recommend"
@@ -73,11 +73,13 @@ class CandidateResult:
 
 
 def print_usage(program_name: str) -> None:
-    print(f"Usage: {program_name} m k n")
+    print(f"Usage: {program_name} m k n [--print-target]")
     print("Args:")
     print("  m: row of matrix A")
     print("  k: shared dimension of A and B")
     print("  n: col of matrix B")
+    print("Options:")
+    print("  --print-target: print only the recommended executable name")
     print(f"Example: {program_name} 1024 4096 2048")
 
 
@@ -90,19 +92,37 @@ def parse_positive_uint64(arg: str, name: str) -> int:
     return value
 
 
-def parse_arguments(argv: List[str]) -> tuple[int, int, int]:
+def parse_arguments(argv: List[str]) -> Tuple[int, int, int, bool]:
     if len(argv) >= 2 and argv[1] in ("-h", "--help"):
         print_usage(Path(argv[0]).name)
         raise SystemExit(0)
-    if len(argv) != 4:
+
+    print_target_only = False
+    positional: List[str] = []
+    for arg in argv[1:]:
+        if arg == "--print-target":
+            print_target_only = True
+            continue
+        if arg.startswith("-"):
+            raise ValueError(f"Unknown option: {arg}")
+        positional.append(arg)
+
+    if len(positional) != 3:
         raise ValueError("Expected exactly 3 arguments: m k n")
 
-    m = parse_positive_uint64(argv[1], "m")
-    k = parse_positive_uint64(argv[2], "k")
-    n = parse_positive_uint64(argv[3], "n")
+    m = parse_positive_uint64(positional[0], "m")
+    k = parse_positive_uint64(positional[1], "k")
+    n = parse_positive_uint64(positional[2], "n")
     if k % 2 != 0:
         raise ValueError("k must be an even number")
-    return m, k, n
+    return m, k, n, print_target_only
+
+
+def get_ranked_results(results: List[CandidateResult]) -> List[CandidateResult]:
+    return sorted(
+        [item for item in results if item.succeeded],
+        key=lambda item: item.kernel_time_us if item.kernel_time_us is not None else float("inf"),
+    )
 
 
 def resolve_executable(script_dir: Path, executable_name: str) -> Path:
@@ -391,7 +411,7 @@ def print_ranking(results: List[CandidateResult]) -> None:
 
 def main(argv: List[str]) -> int:
     try:
-        m, k, n = parse_arguments(argv)
+        m, k, n, print_target_only = parse_arguments(argv)
     except ValueError as error:
         print(f"ERROR: {error}")
         print_usage(Path(argv[0]).name)
@@ -418,8 +438,16 @@ def main(argv: List[str]) -> int:
             candidate_result = run_candidate(script_dir, candidate, m, k, n)
             results.append(candidate_result)
 
+        ranked_results = get_ranked_results(results)
+        if print_target_only:
+            if not ranked_results:
+                print("ERROR: No compatible algorithm found for the current shape.")
+                return 1
+            print(ranked_results[0].label)
+            return 0
+
         print_ranking(results)
-        return 0 if any(result.succeeded for result in results) else 1
+        return 0 if ranked_results else 1
     finally:
         cleanup_msprof_output_dir(msprof_output_dir)
 

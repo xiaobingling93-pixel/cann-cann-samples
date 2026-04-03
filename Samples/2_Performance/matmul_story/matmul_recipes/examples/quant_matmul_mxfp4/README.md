@@ -67,9 +67,39 @@ NPU ARCH 3510
 
 两个可执行文件在运行结束后都会自动调用 `verify_result.py`，将 NPU 输出与 CPU golden 进行一致性校验。
 
-## 构建与运行
+## 一键运行（推荐）
 
-在仓库根目录下完成编译和安装后，进入当前样例目录：
+仓库提供 `run.sh`（位于 `matmul_recipes/examples/quant_matmul_mxfp4/scripts/`），可一键串联 **构建 → 数据生成 → 算子执行 → 结果校验** 全流程。
+推荐先进入样例目录再执行，命令更短：
+
+```bash
+cd Samples/2_Performance/matmul_story/matmul_recipes/examples/quant_matmul_mxfp4
+
+# 自动构建 + 自动推荐最优算法 + 运行
+bash scripts/run.sh 16 2048 16384
+
+# 指定目标可执行文件，跳过重新构建
+bash scripts/run.sh \
+  --target quant_matmul_mxfp4_a_full_load --skip-build 16 2048 16384
+
+# 查看完整帮助
+bash scripts/run.sh --help
+```
+
+### run.sh 参数说明
+
+| 参数 | 说明 |
+|------|------|
+| `m k n` | 矩阵维度（必填）。`k` 须为偶数。 |
+| `--target <name>` | 指定要运行的可执行文件名。省略时自动调用推荐脚本选择最优目标。 |
+| `--skip-build` | 跳过构建/安装阶段，复用已有 `build_out`。 |
+| `-h, --help` | 显示帮助信息。 |
+
+如需查看完整算法推荐排名（含耗时表格），请在安装目录下直接运行 `quant_matmul_mxfp4_algorithm_recommend.py`（见下文「手动构建与运行」）。
+
+## 手动构建与运行
+
+如需手动控制各步骤，可在仓库根目录下完成编译和安装后，进入当前样例目录：
 
 ```bash
 cmake -S . -B build
@@ -100,4 +130,16 @@ python3 gen_data.py 16 2048 16384
 
 ```bash
 python3 quant_matmul_mxfp4_algorithm_recommend.py 16 2048 16384
+```
+
+下图为推荐脚本输出的**结构示意**（数值为虚构，仅说明版式）：
+
+```text
+[Profile Breakdown]
++--------------------------------+----------+---------+----------+---------+---------+------------+--------------+
+| candidate                      |kernel(us)| mac(us) |scalar(us)| mte1(us)| mte2(us)|fixpipe(us) |icache_miss(%)|
++================================+==========+=========+==========+=========+=========+============+==============+
+| quant_matmul_mxfp4_swat        |    12.345|   1.234 |     0.567|   0.123 |   0.456 |     0.789 |        0.100 |
+| quant_matmul_mxfp4_a_full_load |    15.678|   2.100 |     0.800|   0.200 |   0.300 |     0.500 |        0.250 |
++--------------------------------+----------+---------+----------+---------+---------+------------+--------------+
 ```

@@ -20,5 +20,7 @@ add_subdirectory(7_fullload)
 
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/scripts/
     DESTINATION ${MATMUL_INSTALL_PREFIX}/matmul_tutorials
-    FILES_MATCHING PATTERN "*.py"
+    FILES_MATCHING
+    PATTERN "*.py"
+    PATTERN "*.sh"
 )

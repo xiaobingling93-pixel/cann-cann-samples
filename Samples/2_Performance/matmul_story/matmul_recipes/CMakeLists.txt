@@ -42,6 +42,8 @@ set(RECIPE_VARIANTS quant_matmul_mxfp4 quant_matmul_mxfp8)
 foreach(variant IN LISTS RECIPE_VARIANTS)
     install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/examples/${variant}/scripts/
         DESTINATION ${MATMUL_INSTALL_PREFIX}/matmul_recipes/${variant}
-        FILES_MATCHING PATTERN "*.py"
+        FILES_MATCHING
+        PATTERN "*.py"
+        PATTERN "*.sh"
     )
 endforeach()
