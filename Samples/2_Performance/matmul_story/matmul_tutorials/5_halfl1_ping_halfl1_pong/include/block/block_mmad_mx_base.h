@@ -254,12 +254,15 @@ public:
                 AscendC::SetFlag<AscendC::HardEvent::MTE1_M>(l0PingPong_ & 0x1);
                 AscendC::WaitFlag<AscendC::HardEvent::MTE1_M>(l0PingPong_ & 0x1);
 
+                uint8_t mmadUnitFlag =
+                    (iter0 + 1 == kL1Iter_ && iter1 + 1 == kL0Iter)
+                        ? FINAL_ACCUMULATION : NON_FINAL_ACCUMULATION;
                 bool mmadCmatrixInitVal = (iter0 == 0 && iter1 == 0);
                 AscendC::Te::Mad(
                     AscendC::Te::MmadAtom<AscendC::Te::MmadTraits<::Tile::MmadMx>>{}.with(
                         static_cast<uint16_t>(curM),
                         static_cast<uint16_t>(CeilAlign(curKL0, MXFP_DIVISOR_SIZE_LOCAL)),
-                        static_cast<uint16_t>(curN), static_cast<uint8_t>(0), false, mmadCmatrixInitVal),
+                        static_cast<uint16_t>(curN), mmadUnitFlag, false, mmadCmatrixInitVal),
                     tensorL0C, tensorAL0, tensorBL0);
 
                 AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(l0PingPong_ & 0x1);
@@ -275,7 +278,7 @@ public:
         }
 
         auto CopyL0C2GM = AscendC::Te::MakeCopy(AscendC::Te::CopyL0C2GM{});
-        AscendC::Te::Copy(CopyL0C2GM, gmC, tensorL0C, AscendC::Te::FixpipeParams{0});
+        AscendC::Te::Copy(CopyL0C2GM, gmC, tensorL0C, AscendC::Te::FixpipeParams{FINAL_ACCUMULATION});
 
         if (enableL0cPingPong_) {
             l0cPingPong_++;
