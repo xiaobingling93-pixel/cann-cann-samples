@@ -1,0 +1,66 @@
+/**
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
+
+/*!
+ * \file common_utils.h
+ * \brief
+ */
+
+#ifndef COMMON_UTILS_H
+#define COMMON_UTILS_H
+#include <fstream>
+#include <iostream>
+
+#define ERROR_LOG(fmt, args...) fprintf(stdout, "[ERROR]  " fmt "\n", ##args)
+#define CHECK_COND(cond, msg)                                                                                  \
+    do {                                                                                                       \
+        if (!(cond)) {                                                                                         \
+            throw std::runtime_error(                                                                          \
+                std::string("Error: ") + msg + "\nFile: " + __FILE__ + "\nLine: " + std::to_string(__LINE__)); \
+        }                                                                                                      \
+    } while (0)
+
+template <typename T>
+inline T CeilDiv(T a, T b)
+{
+    if (b == 0) {
+        return a;
+    }
+    return (a + b - 1) / b;
+}
+
+template <typename T>
+inline T Align(T a, T b)
+{
+    return CeilDiv(a, b) * b;
+}
+
+template <typename T>
+inline T FloorAlign(T a, T b)
+{
+    if (b == 0) {
+        return a;
+    }
+    return a / b * b;
+}
+
+template <typename T>
+T GetShapeWithDataTypeFP4(T size)
+{
+    return size << 1;
+}
+
+template <typename T>
+T GetSizeWithDataTypeFP4(T shape)
+{
+    return (shape + 1) >> 1;
+}
+
+#endif // COMMON_UTILS_H
